@@ -123,6 +123,7 @@ export function drawCellValuesOverlay(ctx, world, view, canvasW, canvasH) {
   const textSize = Math.max(9, Math.min(18, Math.floor(Math.min(cellW, cellH) * 0.25)));
   const pad = Math.max(2, Math.floor(Math.min(cellW, cellH) * 0.1));
   const { biomass, energy } = world.front;
+  const maxEnergy = world.config.maxEnergy || 1;
 
   ctx.save();
   ctx.font = `${textSize}px "Avenir Next", "Futura", "Trebuchet MS", sans-serif`;
@@ -133,7 +134,7 @@ export function drawCellValuesOverlay(ctx, world, view, canvasW, canvasH) {
     const px = (x - view.sx) * cellW;
     const py = (y - view.sy) * cellH;
     const bio = biomass[i].toFixed(2);
-    const en = energy[i].toFixed(1);
+    const en = clamp(energy[i], 0, maxEnergy).toFixed(1);
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';

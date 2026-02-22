@@ -6,20 +6,20 @@ const SCRATCH_DIFFUSE_NEIGHBORS = new Int32Array(8);
 const DEFAULT_CONFIG = Object.freeze({
   timeStep: 0.05,
   sunSpeed: 0.014,
-  diffuseSelf: 0.8,
-  diffuseNeighbor: 0.2,
-  baseCost: 0.002,
-  geneCostFactor: 0.06,
-  growthRate: 0.03,
-  decayRate: 0.02,
+  diffuseSelf: 0.91,
+  diffuseNeighbor: 0.09,
+  baseCost: 0.0012,
+  geneCostFactor: 0.0056,
+  growthRate: 0.005,
+  decayRate: 0.002,
   reproBiomass: 0.92,
-  reproEnergy: 8,
+  reproEnergy: 14,
   childBiomass: 0.32,
   mutationStep: 0.04,
-  isolationEnergyLoss: 0.02,
-  crowdNeighborSoft: 6,
-  crowdEnergyLoss: 0.004,
-  reproNeighborCap: 4,
+  isolationEnergyLoss: 0.014,
+  crowdNeighborSoft: 5,
+  crowdEnergyLoss: 0.0034,
+  reproNeighborCap: 5,
   maxEnergy: 36
 });
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -188,19 +188,13 @@ export function tick(world, rng = Math.random) {
     const out = selfE * outFrac;
     const base = i * MAX_NEIGHBOR_COUNT;
     const neighborCount = neighborCounts[i];
-    if (!hasWalls) {
-      if (neighborCount > 0) {
-        const share = out / neighborCount;
-        for (let n = 0; n < neighborCount; n++) bEnergy[neighborIndices[base + n]] += share;
-      } else {
-        bEnergy[i] += out;
-      }
-      continue;
-    }
     let deg = 0;
     for (let n = 0; n < neighborCount; n++) {
       const ni = neighborIndices[base + n];
-      if (aType[ni] === wallType) continue;
+      if (hasWalls && aType[ni] === wallType) continue;
+      // 统一邻居判定：只有“活体植物”才参与能量接收。
+      if (aType[ni] !== plantType) continue;
+      if (aBiomass[ni] <= 0) continue;
       diffuseNeighbors[deg++] = ni;
     }
     if (deg > 0) {
@@ -226,9 +220,16 @@ export function tick(world, rng = Math.random) {
       }
       continue;
     }
+    // 防止出现 type=PLANT 但 biomass<=0 的不一致状态（避免“复活”或参与邻居统计）。
+    if (aBiomass[i] <= 0) {
+      bType[i] = emptyType;
+      bEnergy[i] = 0;
+      bGene[i] = 0;
+      continue;
+    }
     const rawGene = aGene[i];
     const gene = rawGene < 0 ? 0 : rawGene > 1 ? 1 : rawGene;
-    const income = sunlight * (0.1 + gene * 0.9);
+    const income = sunlight * (0.02 + gene * 0.05);
     const cost = baseCost + gene * gene * geneCostFactor;
     let energy = bEnergy[i] + income - cost;
     let plantNeighbors = 0;
@@ -238,14 +239,14 @@ export function tick(world, rng = Math.random) {
     for (let n = 0; n < neighborCount; n++) {
       const ni = neighborIndices[base + n];
       const readType = aType[ni];
-      if (readType === plantType) plantNeighbors++;
+      if (readType === plantType && aBiomass[ni] > 0) plantNeighbors++;
       if (readType === emptyType && bType[ni] === emptyType) emptyNeighbors[emptyCount++] = ni;
     }
     if (plantNeighbors < 2) {
       energy -= isolationEnergyLoss;
     } else if (plantNeighbors > crowdNeighborSoft) {
       const localCrowd = plantNeighbors - crowdNeighborSoft;
-      energy -= localCrowd * crowdEnergyLoss;
+      energy -= localCrowd * localCrowd * crowdEnergyLoss;
     }
     bGene[i] = gene;
     const cappedEnergy = energy < maxEnergy ? energy : maxEnergy;
@@ -322,7 +323,7 @@ export function computeStats(world) {
   let totalBiomass = 0;
   let geneSum = 0;
   let plantCount = 0;
-  for (let i = 0; i < world.size; i++) if (type[i] === CellType.PLANT) {
+  for (let i = 0; i < world.size; i++) if (type[i] === CellType.PLANT && biomass[i] > 0) {
     totalBiomass += biomass[i];
     geneSum += gene[i];
     plantCount++;

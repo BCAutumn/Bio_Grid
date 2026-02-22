@@ -20,7 +20,7 @@ npm test
 
 - 双缓冲主循环（读 `front`，写 `back`）。
 - 昼夜光照：`Sunlight = max(0, sin(Time * Speed))`。
-- 能量扩散：`E_new = E_old * 0.8 + neighborsAvg * 0.2`。
+- 能量扩散：`E_new = E_old * 0.95 + neighborsAvg * 0.05`。
 - 植物代谢：光合作用收入 + 基础代谢支出。
 - 生长/凋亡：能量正负决定生物量增减。
 - 密度惩罚：局部过密增加能量消耗，或者缺乏邻居（小于2个）时触发“孤独”能量流失。

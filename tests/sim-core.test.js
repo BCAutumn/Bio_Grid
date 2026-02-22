@@ -20,8 +20,8 @@ test('energy diffusion smooths local spikes', () => {
 
   const center = world.front.energy[1 + 1 * world.width];
   const right = world.front.energy[2 + 1 * world.width];
-  approx(center, 80);
-  assert.ok(right > 0);
+  approx(center, 100);
+  approx(right, 0);
 });
 
 test('wall cells block diffusion and keep zero energy', () => {
