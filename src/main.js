@@ -46,6 +46,8 @@ const speedInput = document.getElementById('speedRange');
 const speedValue = document.getElementById('speedValue');
 const radiusInput = document.getElementById('radiusRange');
 const geneInput = document.getElementById('geneRange');
+const radiusValue = document.getElementById('radiusValue');
+const geneValue = document.getElementById('geneValue');
 const sunSpeedInput = document.getElementById('sunSpeedRange');
 const sunSpeedValue = document.getElementById('sunSpeedValue');
 const zoomInput = document.getElementById('zoomRange');
@@ -206,6 +208,8 @@ function syncReadouts() {
   speedValue.textContent = `${state.ticksPerSecond.toFixed(1)} tick/s`;
   sunSpeedValue.textContent = sunSpeedInput.value;
   zoomValue.textContent = `${camera.zoom.toFixed(1)}x`;
+  if (radiusValue) radiusValue.textContent = `${Number(radiusInput.value) | 0}`;
+  if (geneValue) geneValue.textContent = Number(geneInput.value).toFixed(2);
   const enabled = state.showCellValues;
   const zoomReady = camera.zoom >= CELL_VALUES_MIN_ZOOM;
   btnCellValues.textContent = enabled ? (zoomReady ? '格子数值：开' : `格子数值：开（需≥${CELL_VALUES_MIN_ZOOM}x）`) : '格子数值：关';

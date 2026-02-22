@@ -102,6 +102,14 @@ export function bindInteractions({
     syncReadouts();
   });
 
+  radiusInput.addEventListener('input', () => {
+    syncReadouts();
+  });
+
+  geneInput.addEventListener('input', () => {
+    syncReadouts();
+  });
+
   sunSpeedInput.addEventListener('input', () => {
     const sunSpeed = Number(sunSpeedInput.value);
     world.config.sunSpeed = sunSpeed;

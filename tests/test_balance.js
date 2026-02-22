@@ -1,24 +1,35 @@
 // test_balance.js
+import { DEFAULT_CONFIG } from '../src/config.js';
+
 const ticks = 2094;
 const avgSun = 0.6366;
+const maxEnergy = DEFAULT_CONFIG.maxEnergy;
+const crowdSoft = DEFAULT_CONFIG.crowdNeighborSoft;
 
 function simulate(gene, neighbors) {
-    const baseCost = 0.002;
-    const geneCostFactor = 0.006;
-    const isolation = 0.016;
-    const crowd = 0.002;
+    const baseCost = DEFAULT_CONFIG.baseCost;
+    const geneCostFactor = DEFAULT_CONFIG.geneCostFactor;
+    const isolation = DEFAULT_CONFIG.isolationEnergyLoss;
+    const isolationZeroNeighborMultiplier = DEFAULT_CONFIG.isolationZeroNeighborMultiplier ?? 2;
+    const isolationGeneBase = DEFAULT_CONFIG.isolationGeneBase ?? 1;
+    const isolationGeneFactor = DEFAULT_CONFIG.isolationGeneFactor ?? 0;
+    const crowd = DEFAULT_CONFIG.crowdEnergyLoss;
     
     let crowdPenalty = 0;
-    if (neighbors > 5) {
-        crowdPenalty = Math.pow(neighbors - 5, 2) * crowd;
+    if (neighbors > crowdSoft) {
+        const localCrowd = neighbors - crowdSoft;
+        const crowdFactor = localCrowd === 1 ? 1 : localCrowd === 2 ? 2 : localCrowd === 3 ? 6 : 15;
+        crowdPenalty = crowdFactor * crowd;
     }
     let isoPenalty = 0;
     if (neighbors < 2) {
-        isoPenalty = isolation;
+        const neighborFactor = neighbors === 0 ? isolationZeroNeighborMultiplier : 1;
+        const geneFactor = isolationGeneBase + gene * isolationGeneFactor;
+        isoPenalty = isolation * neighborFactor * geneFactor;
     }
     
     const cost = baseCost + gene * gene * geneCostFactor + crowdPenalty + isoPenalty;
-    const income = (0.02 + gene * 0.05);
+    const income = (0.02 + gene * 0.064);
     const dayIncome = income * avgSun * ticks;
     const dayCost = cost * ticks;
     const nightCost = cost * ticks;
@@ -29,7 +40,7 @@ function simulate(gene, neighbors) {
     
     // Day
     let gained = dayIncome - dayCost;
-    energy = Math.min(36, energy + gained);
+    energy = Math.min(maxEnergy, energy + gained);
     console.log(`End of Day 1 Energy: ${energy.toFixed(1)}`);
     
     // Night
@@ -38,7 +49,7 @@ function simulate(gene, neighbors) {
     
     // Day 2
     if (energy > 0) {
-        energy = Math.min(36, energy + gained);
+        energy = Math.min(maxEnergy, energy + gained);
         console.log(`End of Day 2 Energy: ${energy.toFixed(1)}`);
         energy -= nightCost;
         console.log(`End of Night 2 Energy: ${energy.toFixed(1)} ${energy < 0 ? '(DIES)' : '(SURVIVES)'}`);

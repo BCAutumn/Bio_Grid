@@ -1,4 +1,5 @@
 import { CellType, createWorld, randomSeed, resetWorld, setCell, tick } from '../src/sim-core.js';
+import { DEFAULT_CONFIG } from '../src/config.js';
 
 const parseArgs = (argv) => {
   const out = {};
@@ -247,27 +248,14 @@ const scoreSingleCellConstraint = (config) => {
 const sampleConfig = (rng) => {
   const diffuseNeighbor = randRange(rng, 0.03, 0.11);
   return {
+    ...DEFAULT_CONFIG,
     diffuseSelf: 1 - diffuseNeighbor,
     diffuseNeighbor,
-
     baseCost: randRange(rng, 0.0011, 0.0024),
     geneCostFactor: randRange(rng, 0.0038, 0.0064),
-
     isolationEnergyLoss: randRange(rng, 0.007, 0.016),
     crowdNeighborSoft: randChoice(rng, [4, 5, 6]),
-    crowdEnergyLoss: randRange(rng, 0.0012, 0.0048),
-
-    // 其余保持当前默认（但允许外部覆盖）
-    timeStep: 0.05,
-    sunSpeed: 0.014,
-    growthRate: 0.005,
-    decayRate: 0.002,
-    reproBiomass: 0.92,
-    reproEnergy: 14,
-    childBiomass: 0.32,
-    mutationStep: 0.04,
-    reproNeighborCap: 5,
-    maxEnergy: 36
+    crowdEnergyLoss: randRange(rng, 0.0012, 0.0048)
   };
 };
 

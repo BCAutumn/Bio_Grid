@@ -1,27 +1,10 @@
+import { DEFAULT_CONFIG } from './config.js';
+
 export const CellType = Object.freeze({ EMPTY: 0, PLANT: 1, HERBIVORE: 2, WALL: 3 });
 const NEIGHBORS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const MAX_NEIGHBOR_COUNT = NEIGHBORS.length;
 const SCRATCH_EMPTY_NEIGHBORS = new Int32Array(8);
 const SCRATCH_DIFFUSE_NEIGHBORS = new Int32Array(8);
-const DEFAULT_CONFIG = Object.freeze({
-  timeStep: 0.05,
-  sunSpeed: 0.014,
-  diffuseSelf: 0.91,
-  diffuseNeighbor: 0.09,
-  baseCost: 0.0012,
-  geneCostFactor: 0.0056,
-  growthRate: 0.005,
-  decayRate: 0.002,
-  reproBiomass: 0.92,
-  reproEnergy: 14,
-  childBiomass: 0.32,
-  mutationStep: 0.04,
-  isolationEnergyLoss: 0.014,
-  crowdNeighborSoft: 5,
-  crowdEnergyLoss: 0.0034,
-  reproNeighborCap: 5,
-  maxEnergy: 36
-});
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const RNG_MAX_OPEN = 0.9999999999999999;
 const createGrid = (size) => ({
@@ -155,6 +138,8 @@ export function tick(world, rng = Math.random) {
   world.sunlight = sunlight;
   const diffuseSelf = config.diffuseSelf;
   const diffuseNeighbor = config.diffuseNeighbor;
+  const diffuseGradientThreshold = config.diffuseGradientThreshold ?? 0;
+  const diffuseGradientScale = config.diffuseGradientScale ?? 0;
   const norm = diffuseSelf + diffuseNeighbor;
   const keepFrac = norm > 0 ? diffuseSelf / norm : 0;
   const outFrac = norm > 0 ? diffuseNeighbor / norm : 0;
@@ -163,6 +148,9 @@ export function tick(world, rng = Math.random) {
   const growthRate = config.growthRate;
   const decayRate = config.decayRate;
   const isolationEnergyLoss = config.isolationEnergyLoss;
+  const isolationZeroNeighborMultiplier = config.isolationZeroNeighborMultiplier ?? 2;
+  const isolationGeneBase = config.isolationGeneBase ?? 1;
+  const isolationGeneFactor = config.isolationGeneFactor ?? 0;
   const crowdNeighborSoft = config.crowdNeighborSoft;
   const crowdEnergyLoss = config.crowdEnergyLoss;
   const reproNeighborCap = config.reproNeighborCap;
@@ -185,10 +173,11 @@ export function tick(world, rng = Math.random) {
     const selfE = rawSelfE;
     bEnergy[i] += selfE * keepFrac;
 
-    const out = selfE * outFrac;
+    const outMax = selfE * outFrac;
     const base = i * MAX_NEIGHBOR_COUNT;
     const neighborCount = neighborCounts[i];
     let deg = 0;
+    let neighborESum = 0;
     for (let n = 0; n < neighborCount; n++) {
       const ni = neighborIndices[base + n];
       if (hasWalls && aType[ni] === wallType) continue;
@@ -196,12 +185,27 @@ export function tick(world, rng = Math.random) {
       if (aType[ni] !== plantType) continue;
       if (aBiomass[ni] <= 0) continue;
       diffuseNeighbors[deg++] = ni;
+      const ne = aEnergy[ni];
+      neighborESum += ne > 0 ? ne : 0;
     }
     if (deg > 0) {
+      // 梯度驱动扩散：只有当自身能量明显高于邻居平均时才外流。
+      const neighborAvgE = neighborESum / deg;
+      const gap = selfE - neighborAvgE;
+      let factor = 0;
+      if (gap > diffuseGradientThreshold) {
+        if (diffuseGradientScale > 0) factor = (gap - diffuseGradientThreshold) / diffuseGradientScale;
+        else factor = 1;
+        if (factor < 0) factor = 0;
+        else if (factor > 1) factor = 1;
+      }
+      const out = outMax * factor;
+      // 未外流的部分回流到自身，保证能量守恒且扩散不会“一次性倒空”。
+      bEnergy[i] += outMax - out;
       const share = out / deg;
       for (let k = 0; k < deg; k++) bEnergy[diffuseNeighbors[k]] += share;
     } else {
-      bEnergy[i] += out;
+      bEnergy[i] += outMax;
     }
   }
   for (let i = 0; i < size; i++) {
@@ -229,7 +233,7 @@ export function tick(world, rng = Math.random) {
     }
     const rawGene = aGene[i];
     const gene = rawGene < 0 ? 0 : rawGene > 1 ? 1 : rawGene;
-    const income = sunlight * (0.02 + gene * 0.05);
+    const income = sunlight * (0.02 + gene * 0.064);
     const cost = baseCost + gene * gene * geneCostFactor;
     let energy = bEnergy[i] + income - cost;
     let plantNeighbors = 0;
@@ -243,10 +247,15 @@ export function tick(world, rng = Math.random) {
       if (readType === emptyType && bType[ni] === emptyType) emptyNeighbors[emptyCount++] = ni;
     }
     if (plantNeighbors < 2) {
-      energy -= isolationEnergyLoss;
+      const neighborFactor = plantNeighbors === 0 ? isolationZeroNeighborMultiplier : 1;
+      // 更直观的线性形式：低 gene 更耐孤独，高 gene 更吃亏。
+      const geneFactor = isolationGeneBase + gene * isolationGeneFactor;
+      energy -= isolationEnergyLoss * neighborFactor * geneFactor;
     } else if (plantNeighbors > crowdNeighborSoft) {
       const localCrowd = plantNeighbors - crowdNeighborSoft;
-      energy -= localCrowd * localCrowd * crowdEnergyLoss;
+      // 采用非线性拥挤系数（与规则文档示例一致）。
+      const crowdFactor = [0, 1, 2, 6, 15][localCrowd] ?? ((2 ** localCrowd) - 1);
+      energy -= crowdFactor * crowdEnergyLoss;
     }
     bGene[i] = gene;
     const cappedEnergy = energy < maxEnergy ? energy : maxEnergy;

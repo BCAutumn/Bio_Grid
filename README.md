@@ -48,6 +48,7 @@ Bio_Grid/
     sim-core.js
     sim-worker.js
     styles.css
+    config.js
   tests/
     sim-core.test.js
   docs/

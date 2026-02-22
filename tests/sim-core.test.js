@@ -12,7 +12,7 @@ const approx = (actual, expected, eps = 1e-6) => {
   assert.ok(Math.abs(actual - expected) <= eps, `Expected ${actual} ≈ ${expected}`);
 };
 
-test('energy diffusion smooths local spikes', () => {
+test('energy in empty cell does not diffuse', () => {
   const world = createWorld(3, 3, { baseCost: 0, geneCostFactor: 0, growthRate: 0, decayRate: 0, sunSpeed: 0 });
   setCell(world, 1, 1, { energy: 100, type: CellType.EMPTY });
 
@@ -22,6 +22,32 @@ test('energy diffusion smooths local spikes', () => {
   const right = world.front.energy[2 + 1 * world.width];
   approx(center, 100);
   approx(right, 0);
+});
+
+test('energy diffuses among living plants and smooths spikes', () => {
+  const world = createWorld(3, 1, {
+    sunSpeed: 0,
+    diffuseSelf: 0.5,
+    diffuseNeighbor: 0.5,
+    diffuseGradientThreshold: 0,
+    diffuseGradientScale: 1,
+    baseCost: 0,
+    geneCostFactor: 0,
+    growthRate: 0,
+    decayRate: 0,
+    isolationEnergyLoss: 0,
+    maxEnergy: 1000
+  });
+  setCell(world, 0, 0, { type: CellType.PLANT, biomass: 1, energy: 100, gene: 0.5 });
+  setCell(world, 1, 0, { type: CellType.PLANT, biomass: 1, energy: 0, gene: 0.5 });
+  setCell(world, 2, 0, { type: CellType.PLANT, biomass: 1, energy: 0, gene: 0.5 });
+
+  tick(world, () => 0.5);
+
+  // 3x1 的边界格子只有 1 个邻居：out=50, deg=1 => 邻居得 50，自身留 50
+  approx(world.front.energy[0], 50);
+  approx(world.front.energy[1], 50);
+  approx(world.front.energy[2], 0);
 });
 
 test('wall cells block diffusion and keep zero energy', () => {
