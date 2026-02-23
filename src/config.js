@@ -5,6 +5,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   diffuseNeighbor: 0.08,
   diffuseGradientThreshold: 1.0,
   diffuseGradientScale: 8.0,
+  // 地形流失只作用于基础代谢基项：Cost0 = base * terrain.loss[i] + gene^2 * factor
   baseCost: 0.0004,
   geneCostFactor: 0.002,
   // 只有当结算后的能量达到该阈值，生物量才会增长（避免“刚天亮能量略正就瞬间回血”）。
@@ -35,7 +36,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   senescenceStartFrac: 0.7,
   senescenceCostExtraMultiplier: 3,
 
-  // 光合作用：Income = Sunlight * (base + Gene * factor)
+  // 光合作用：Income = (Sunlight * terrain.light[i]) * (base + Gene * factor)
   photoIncomeBase: 0.04,
   photoIncomeGeneFactor: 0.0056,
 

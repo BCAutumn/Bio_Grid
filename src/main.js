@@ -53,11 +53,18 @@ const sunSpeedInput = document.getElementById('sunSpeedRange');
 const sunSpeedValue = document.getElementById('sunSpeedValue');
 const zoomInput = document.getElementById('zoomRange');
 const zoomValue = document.getElementById('zoomValue');
+const terrainStrengthInput = document.getElementById('terrainStrengthRange');
+const terrainStrengthValue = document.getElementById('terrainStrengthValue');
 
 const btnModeLife = document.getElementById('btnModeLife');
 const btnModeDisturb = document.getElementById('btnModeDisturb');
 const btnModeAnnihilate = document.getElementById('btnModeAnnihilate');
 const btnModeWall = document.getElementById('btnModeWall');
+const btnModeErase = document.getElementById('btnModeErase');
+const btnModeLightUp = document.getElementById('btnModeLightUp');
+const btnModeLightDown = document.getElementById('btnModeLightDown');
+const btnModeLossUp = document.getElementById('btnModeLossUp');
+const btnModeLossDown = document.getElementById('btnModeLossDown');
 
 const btnShapeCircle = document.getElementById('btnShapeCircle');
 const btnShapeSquare = document.getElementById('btnShapeSquare');
@@ -70,6 +77,13 @@ const btnPresetMaze = document.getElementById('btnPresetMaze');
 const btnPresetBorder = document.getElementById('btnPresetBorder');
 const btnPresetHourglass = document.getElementById('btnPresetHourglass');
 const btnPresetRings = document.getElementById('btnPresetRings');
+const btnViewEco = document.getElementById('btnViewEco');
+const btnViewTerrainLight = document.getElementById('btnViewTerrainLight');
+const btnViewTerrainLoss = document.getElementById('btnViewTerrainLoss');
+const btnViewTerrainMix = document.getElementById('btnViewTerrainMix');
+const btnMapUndo = document.getElementById('btnMapUndo');
+const btnMapRedo = document.getElementById('btnMapRedo');
+const btnTerrainUniformReset = document.getElementById('btnTerrainUniformReset');
 
 const panel = {
   time: document.getElementById('statTime'),
@@ -104,8 +118,11 @@ const state = {
   workerRenderMode: false,
   showCellValues: false,
   showAgingGlow: false,
+  viewMode: 'eco',
   brushMode: 'life',
   brushShape: 'circle',
+  terrainBrushStrength: Number(terrainStrengthInput?.value ?? 0.08),
+  activeSidebarTab: 'controls',
   pointerMode: 'none',
   spaceDown: false,
   panStart: null
@@ -131,15 +148,15 @@ function sendToWorker(message, transferables = []) {
 
 function applySnapshotMeta(snapshotMeta) {
   world.time = snapshotMeta.time;
-  world.sunlight = snapshotMeta.sunlight;
+  if (Number.isFinite(snapshotMeta.day)) world.day = snapshotMeta.day;
+  world.sunlight = snapshotMeta.sunlight ?? world.sunlight;
   world.stats.tick = snapshotMeta.stats.tick;
   world.stats.totalBiomass = snapshotMeta.stats.totalBiomass;
   world.stats.avgGene = snapshotMeta.stats.avgGene;
   world.stats.plantCount = snapshotMeta.stats.plantCount;
-  world.stats.sunlight = snapshotMeta.sunlight;
   pushHistory(world.stats);
 
-  // Sync smooth sky animation baseline to worker snapshots.
+  // 用快照对齐天空动画基线（后续在 rAF 里平滑推进）
   skySync.time = world.time;
   skySync.ts = performance.now();
 }
@@ -150,6 +167,7 @@ function applySnapshot(snapshot) {
   world.front.gene = new Float32Array(snapshot.gene);
   world.front.type = new Uint8Array(snapshot.cellType);
   if (snapshot.age) world.front.age = new Float32Array(snapshot.age);
+  if (Number.isFinite(snapshot.day)) world.day = snapshot.day;
   applySnapshotMeta(snapshot);
 }
 
@@ -187,6 +205,13 @@ simWorker.addEventListener('message', (event) => {
   if (message.type === 'workerError') {
     console.error('[sim-worker:error]', message.stage, message.message, message.stack || '');
     panel.hint.textContent = `模拟线程异常(${message.stage})，请刷新页面并查看控制台`;
+    return;
+  }
+  if (message.type === 'terrainHistoryState') {
+    if (btnMapUndo) btnMapUndo.disabled = !message.canUndo;
+    if (btnMapRedo) btnMapRedo.disabled = !message.canRedo;
+    if (message.action === 'undo') panel.hint.textContent = '已撤销地图编辑';
+    else if (message.action === 'redo') panel.hint.textContent = '已重做地图编辑';
     return;
   }
   if (message.type === 'ready') {
@@ -231,6 +256,7 @@ function syncViewToWorker() {
     sw: view.sw,
     sh: view.sh,
     zoom: camera.zoom,
+    viewMode: state.viewMode,
     showCellValues: state.showCellValues,
     showAgingGlow: state.showAgingGlow
   });
@@ -238,10 +264,11 @@ function syncViewToWorker() {
 
 function syncReadouts() {
   speedValue.textContent = `${state.ticksPerSecond.toFixed(1)} tick/s`;
-  sunSpeedValue.textContent = sunSpeedInput.value;
+  if (sunSpeedValue && sunSpeedInput) sunSpeedValue.textContent = Number(sunSpeedInput.value).toFixed(3);
   zoomValue.textContent = `${camera.zoom.toFixed(1)}x`;
   if (radiusValue) radiusValue.textContent = `${Number(radiusInput.value) | 0}`;
   if (geneValue) geneValue.textContent = Number(geneInput.value).toFixed(2);
+  if (terrainStrengthValue && terrainStrengthInput) terrainStrengthValue.textContent = Number(terrainStrengthInput.value).toFixed(2);
   const enabled = state.showCellValues;
   const zoomReady = camera.zoom >= CELL_VALUES_MIN_ZOOM;
   btnCellValues.textContent = enabled ? (zoomReady ? '格子数值：开' : `格子数值：开（需≥${CELL_VALUES_MIN_ZOOM}x）`) : '格子数值：关';
@@ -307,7 +334,7 @@ function drawChartIfNeeded(now) {
 
 function paintFrame(now) {
   if (!simCtx || !bufferCtx || !bufferCanvas || !frame) return;
-  paintWorldToPixels(world, frame.data, { showAgingGlow: state.showAgingGlow });
+  paintWorldToPixels(world, frame.data, { showAgingGlow: state.showAgingGlow, viewMode: state.viewMode });
   bufferCtx.putImageData(frame, 0, 0);
   const view = currentView();
   simCtx.imageSmoothingEnabled = false;
@@ -321,9 +348,9 @@ function paintFrame(now) {
 
 function refreshPanel() {
   const stats = world.stats;
-  const day = (world.time * world.config.sunSpeed) / (Math.PI * 2);
+  const day = Number.isFinite(world.day) ? world.day : (world.time * (world.config.sunSpeed || 0)) / (Math.PI * 2);
   panel.time.textContent = day.toFixed(2);
-  panel.sunlight.textContent = stats.sunlight.toFixed(2);
+  if (panel.sunlight) panel.sunlight.textContent = world.sunlight.toFixed(3);
   panel.biomass.textContent = (stats.totalBiomass / world.size).toFixed(3);
   panel.plants.textContent = `${stats.plantCount}`;
   panel.gene.textContent = stats.avgGene.toFixed(3);
@@ -339,18 +366,6 @@ function frameLoop(now) {
     applySnapshot(pendingSnapshot);
     pendingSnapshot = null;
   }
-  // Smooth sky animation: interpolate between worker snapshotMeta updates.
-  let skyTime = skySync.time;
-  if (state.running) {
-    const dtSec = Math.max(0, (now - skySync.ts) / 1000);
-    skyTime += dtSec * state.ticksPerSecond * world.config.timeStep;
-  } else {
-    // Prevent "jump" after pausing by keeping baseline fresh.
-    skySync.time = world.time;
-    skySync.ts = now;
-    skyTime = world.time;
-  }
-  updateSkyBadge(world, skyOrbit, skyTime);
   if (now - state.lastRenderTs >= RENDER_INTERVAL_MS) {
     if (state.workerRenderMode) drawChartIfNeeded(now);
     else paintFrame(now);
@@ -360,6 +375,14 @@ function frameLoop(now) {
     refreshPanel();
     state.lastPanelTs = now;
   }
+
+  // 昼夜天空轨道动画：按“模拟时间”平滑推进
+  const dtMs = now - skySync.ts;
+  const dtSec = dtMs > 0 ? dtMs / 1000 : 0;
+  const timeRate = state.running ? (state.ticksPerSecond * (world.config.timeStep || 0.05)) : 0;
+  const animTime = skySync.time + dtSec * timeRate;
+  updateSkyBadge(skyOrbit, animTime, world.config.sunSpeed);
+
   requestAnimationFrame(frameLoop);
 }
 bindInteractions({
@@ -372,12 +395,15 @@ bindInteractions({
   world,
   buttons: {
     btnPause, btnReset, btnSeed, btnViewReset, btnCellValues, btnAgingGlow,
-    btnModeLife, btnModeDisturb, btnModeAnnihilate, btnModeWall,
+    btnModeLife, btnModeDisturb, btnModeAnnihilate, btnModeWall, btnModeErase,
+    btnModeLightUp, btnModeLightDown, btnModeLossUp, btnModeLossDown,
     btnShapeCircle, btnShapeSquare, btnShapeRect, btnShapeTriangle,
+    btnViewEco, btnViewTerrainLight, btnViewTerrainLoss, btnViewTerrainMix,
     btnPresetEmpty, btnPresetFourRooms, btnPresetMaze,
-    btnPresetBorder, btnPresetHourglass, btnPresetRings
+    btnPresetBorder, btnPresetHourglass, btnPresetRings,
+    btnMapUndo, btnMapRedo, btnTerrainUniformReset
   },
-  inputs: { speedInput, radiusInput, geneInput, sunSpeedInput, zoomInput },
+  inputs: { speedInput, radiusInput, geneInput, sunSpeedInput, zoomInput, terrainStrengthInput },
   sendToWorker,
   setZoom,
   zoomAt,
@@ -396,41 +422,55 @@ bindInteractions({
 });
 
 const tabControls = document.getElementById('tabControls');
+const tabMapEditor = document.getElementById('tabMapEditor');
 const tabStats = document.getElementById('tabStats');
 const contentControls = document.getElementById('contentControls');
+const contentMapEditor = document.getElementById('contentMapEditor');
 const contentStats = document.getElementById('contentStats');
 
 const panelStats = document.querySelector('.panel-stats');
 
 function updateTabs() {
-  if (window.innerWidth <= 1600) {
-    if (tabControls.classList.contains('is-active')) {
-      contentControls.classList.add('is-active');
-      panelStats.classList.remove('is-active');
-    } else {
-      contentControls.classList.remove('is-active');
-      panelStats.classList.add('is-active');
-    }
-  } else {
-    // In wide mode, both panels are controlled by media queries for layout
-    contentControls.classList.add('is-active');
-    panelStats.classList.remove('is-active');
+  const compactMode = window.innerWidth <= 1600;
+  if (!compactMode && state.activeSidebarTab === 'stats') state.activeSidebarTab = 'controls';
+  const active = state.activeSidebarTab;
+  const showControls = active === 'controls';
+  const showMapEditor = active === 'map';
+  const showStats = compactMode && active === 'stats';
+
+  tabControls.classList.toggle('is-active', showControls);
+  if (tabMapEditor) tabMapEditor.classList.toggle('is-active', showMapEditor);
+  if (tabStats) tabStats.classList.toggle('is-active', showStats);
+
+  contentControls.classList.toggle('is-active', showControls);
+  if (contentMapEditor) contentMapEditor.classList.toggle('is-active', showMapEditor);
+  if (compactMode) panelStats.classList.toggle('is-active', showStats);
+  else panelStats.classList.remove('is-active');
+
+  if (showStats || !compactMode) {
+    drawChartIfNeeded(performance.now() + CHART_MIN_INTERVAL_MS + 1);
   }
 }
 
 tabControls.addEventListener('click', () => {
-  tabControls.classList.add('is-active');
-  tabStats.classList.remove('is-active');
+  state.activeSidebarTab = 'controls';
   updateTabs();
 });
 
-tabStats.addEventListener('click', () => {
-  tabStats.classList.add('is-active');
-  tabControls.classList.remove('is-active');
-  updateTabs();
-  // force chart redraw if possible
-  drawChartIfNeeded(performance.now() + CHART_MIN_INTERVAL_MS + 1);
-});
+if (tabMapEditor) {
+  tabMapEditor.addEventListener('click', () => {
+    state.activeSidebarTab = 'map';
+    if (state.viewMode === 'eco' && btnViewTerrainMix) btnViewTerrainMix.click();
+    updateTabs();
+  });
+}
+
+if (tabStats) {
+  tabStats.addEventListener('click', () => {
+    state.activeSidebarTab = 'stats';
+    updateTabs();
+  });
+}
 
 // Update tabs on resize to handle layout transitions
 window.addEventListener('resize', updateTabs);

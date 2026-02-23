@@ -5,6 +5,9 @@ const SCRATCH_DIFFUSE_NEIGHBORS = new Int32Array(8);
 
 export function tick(world, rng = Math.random) {
   const { config, front: a, back: b } = world;
+  const terrain = world.terrain;
+  const terrainLight = terrain?.light;
+  const terrainLoss = terrain?.loss;
   const size = world.size;
   const neighborIndices = world.neighbors.indices;
   const neighborCounts = world.neighbors.counts;
@@ -75,8 +78,27 @@ export function tick(world, rng = Math.random) {
   bAge.set(aAge);
   for (let i = 0; i < size; i++) {
     if (hasWalls && aType[i] === wallType) {
+      reproEligible[i] = 0;
       continue;
     }
+
+    if (aType[i] !== plantType) {
+      reproEligible[i] = 0;
+    } else {
+      const g = aGene[i];
+      const geneVal = g < 0 ? 0 : g > 1 ? 1 : g;
+      const cellMaxEnergy = energyMaxBase - geneVal * energyMaxGeneRange;
+      const cellMaxBiomass = biomassMaxBase - geneVal * biomassMaxGeneRange;
+      
+      if (aBiomass[i] <= cellMaxBiomass * reproBiomassRatio || aEnergy[i] <= cellMaxEnergy * reproEnergyRatio) {
+        reproEligible[i] = 0;
+      } else {
+        const maxAge = ageMaxBase + (1 - geneVal) * ageMaxGeneRange;
+        const ageNow = aAge[i] || 0;
+        reproEligible[i] = ageNow <= maxAge * senescenceStartFrac ? 1 : 0;
+      }
+    }
+
     const rawSelfE = aEnergy[i];
     if (rawSelfE <= 0) continue;
     const selfE = rawSelfE;
@@ -92,7 +114,6 @@ export function tick(world, rng = Math.random) {
       if (hasWalls && aType[ni] === wallType) continue;
       // 统一邻居判定：只有“活体植物”才参与能量接收。
       if (aType[ni] !== plantType) continue;
-      if (aBiomass[ni] <= 0) continue;
       diffuseNeighbors[deg++] = ni;
       const ne = aEnergy[ni];
       neighborESum += ne > 0 ? ne : 0;
@@ -116,25 +137,6 @@ export function tick(world, rng = Math.random) {
     } else {
       bEnergy[i] += outMax;
     }
-  }
-  for (let i = 0; i < size; i++) {
-    if (aType[i] !== plantType) {
-      reproEligible[i] = 0;
-      continue;
-    }
-    const g = aGene[i];
-    const geneVal = g < 0 ? 0 : g > 1 ? 1 : g;
-    const cellMaxEnergy = energyMaxBase - geneVal * energyMaxGeneRange;
-    const cellMaxBiomass = biomassMaxBase - geneVal * biomassMaxGeneRange;
-    
-    if (aBiomass[i] <= cellMaxBiomass * reproBiomassRatio || aEnergy[i] <= cellMaxEnergy * reproEnergyRatio) {
-      reproEligible[i] = 0;
-      continue;
-    }
-
-    const maxAge = ageMaxBase + (1 - geneVal) * ageMaxGeneRange;
-    const ageNow = aAge[i] || 0;
-    reproEligible[i] = ageNow <= maxAge * senescenceStartFrac ? 1 : 0;
   }
   for (let i = 0; i < size; i++) {
     if (aType[i] !== plantType) {
@@ -169,8 +171,10 @@ export function tick(world, rng = Math.random) {
       bAge[i] = 0;
       continue;
     }
-    const income = sunlight * (photoIncomeBase + gene * photoIncomeGeneFactor);
-    const cost0 = baseCost + gene * gene * geneCostFactor;
+    const localSunlight = sunlight * (terrainLight ? terrainLight[i] : 1);
+    const income = localSunlight * (photoIncomeBase + gene * photoIncomeGeneFactor);
+    const baseCostScaled = baseCost * (terrainLoss ? terrainLoss[i] : 1);
+    const cost0 = baseCostScaled + gene * gene * geneCostFactor;
     // 由于 age >= cellMaxAge 会先老死 return，这里的衰老项天然落在 [0, 1) 区间，不需要额外 clamp/min。
     const senescenceDenom = cellMaxAge * (1 - senescenceStartFrac);
     const senescenceT = senescenceDenom > 0 ? Math.max(0, (age - cellMaxAge * senescenceStartFrac) / senescenceDenom) : 0;
@@ -183,7 +187,7 @@ export function tick(world, rng = Math.random) {
     for (let n = 0; n < neighborCount; n++) {
       const ni = neighborIndices[base + n];
       const readType = aType[ni];
-      if (readType === plantType && aBiomass[ni] > 0) plantNeighbors++;
+      if (readType === plantType) plantNeighbors++;
       if (readType === emptyType && bType[ni] === emptyType) emptyNeighbors[emptyCount++] = ni;
     }
     if (plantNeighbors < isolationNeighborMin) {
@@ -271,7 +275,6 @@ export function tick(world, rng = Math.random) {
   world.front = b;
   world.back = a;
   world.stats.tick += 1;
-  world.stats.sunlight = world.sunlight;
   return world.stats;
 }
 
@@ -280,7 +283,7 @@ export function computeStats(world) {
   let totalBiomass = 0;
   let geneSum = 0;
   let plantCount = 0;
-  for (let i = 0; i < world.size; i++) if (type[i] === CellType.PLANT && biomass[i] > 0) {
+  for (let i = 0; i < world.size; i++) if (type[i] === CellType.PLANT) {
     totalBiomass += biomass[i];
     geneSum += gene[i];
     plantCount++;
@@ -288,7 +291,6 @@ export function computeStats(world) {
   world.stats.totalBiomass = totalBiomass;
   world.stats.plantCount = plantCount;
   world.stats.avgGene = plantCount ? geneSum / plantCount : 0;
-  world.stats.sunlight = world.sunlight;
   return world.stats;
 }
 

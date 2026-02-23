@@ -22,7 +22,8 @@
 
           <div class="panel-tabs">
             <button id="tabControls" class="tab-btn is-active">控制台</button>
-            <button id="tabStats" class="tab-btn">数据与图表</button>
+            <button id="tabMapEditor" class="tab-btn">地图编辑器</button>
+            <button id="tabStats" class="tab-btn tab-btn-stats">数据与图表</button>
           </div>
 
           <div id="contentControls" class="tab-content is-active">
@@ -44,9 +45,66 @@
                   <button id="btnModeLife" class="is-active">播种</button>
                   <button id="btnModeDisturb">干扰</button>
                   <button id="btnModeAnnihilate">毁灭</button>
-                  <button id="btnModeWall">墙体</button>
                 </div>
               </div>
+
+              <label>
+                <span class="label-line"><span class="label-title">速度（Tick / 秒）</span><span class="value" id="speedValue">300.0 tick/s</span></span>
+                <input id="speedRange" type="range" min="0.2" max="480" step="0.2" value="300" />
+              </label>
+
+              <label>
+                <span class="label-line"><span class="label-title">笔刷半径</span><span class="value" id="radiusValue">3</span></span>
+                <input id="radiusRange" type="range" min="1" max="12" step="1" value="3" />
+              </label>
+
+              <label>
+                <span class="label-line"><span class="label-title">左键播种基因</span><span class="value" id="geneValue">0.50</span></span>
+                <input id="geneRange" type="range" min="0" max="1" step="0.01" value="0.5" />
+              </label>
+
+              <label>
+                <span class="label-line"><span class="label-title">昼夜速度</span><span class="value" id="sunSpeedValue">0.014</span></span>
+                <input id="sunSpeedRange" type="range" min="0.004" max="0.12" step="0.001" value="0.014" />
+              </label>
+
+              <label>
+                <span class="label-line"><span class="label-title">缩放</span><span class="value" id="zoomValue">1.0x</span></span>
+                <input id="zoomRange" type="range" min="1" max="24" step="0.1" value="1" />
+              </label>
+            </div>
+
+            <p id="toolHint">当前模式：播种。左键拖动绘制；滚轮缩放；中键拖动平移。</p>
+          </div>
+
+          <div id="contentMapEditor" class="tab-content">
+            <div class="controls">
+              <div class="label-group">
+                <div class="label-line"><span class="label-title">地形视图</span></div>
+                <div class="row terrain-view-modes">
+                  <button id="btnViewEco" class="is-active">生态</button>
+                  <button id="btnViewTerrainLight">光照</button>
+                  <button id="btnViewTerrainLoss">流失</button>
+                  <button id="btnViewTerrainMix">复合</button>
+                </div>
+              </div>
+
+              <div class="label-group">
+                <div class="label-line"><span class="label-title">地形笔刷</span></div>
+                <div class="row terrain-brush-modes">
+                  <button id="btnModeWall">墙体</button>
+                  <button id="btnModeErase">擦除</button>
+                  <button id="btnModeLightUp">光照+</button>
+                  <button id="btnModeLightDown">光照-</button>
+                  <button id="btnModeLossUp">流失+</button>
+                  <button id="btnModeLossDown">流失-</button>
+                </div>
+              </div>
+
+              <label>
+                <span class="label-line"><span class="label-title">地形刷强度</span><span class="value" id="terrainStrengthValue">0.08</span></span>
+                <input id="terrainStrengthRange" type="range" min="0.01" max="0.25" step="0.01" value="0.08" />
+              </label>
 
               <div class="label-group">
                 <div class="label-line"><span class="label-title">笔刷形状</span></div>
@@ -69,33 +127,23 @@
                 </div>
               </div>
 
-              <label>
-                <span class="label-line"><span class="label-title">速度（Tick / 秒）</span><span class="value" id="speedValue">300.0 tick/s</span></span>
-                <input id="speedRange" type="range" min="0.2" max="480" step="0.2" value="300" />
-              </label>
+              <div class="label-group">
+                <div class="label-line"><span class="label-title">恢复操作</span></div>
+                <div class="row row-tight">
+                  <button id="btnMapUndo" disabled>撤销</button>
+                  <button id="btnMapRedo" disabled>重做</button>
+                </div>
+              </div>
 
-              <label>
-                <span class="label-line"><span class="label-title">笔刷半径</span><span class="value" id="radiusValue">3</span></span>
-                <input id="radiusRange" type="range" min="1" max="12" step="1" value="3" />
-              </label>
-
-              <label>
-                <span class="label-line"><span class="label-title">左键播种基因</span><span class="value" id="geneValue">0.50</span></span>
-                <input id="geneRange" type="range" min="0" max="1" step="0.01" value="0.5" />
-              </label>
-
-              <label>
-                <span class="label-line"><span class="label-title">昼夜速度</span><span class="value" id="sunSpeedValue">0.03</span></span>
-                <input id="sunSpeedRange" type="range" min="0.004" max="0.12" step="0.001" value="0.03" />
-              </label>
-
-              <label>
-                <span class="label-line"><span class="label-title">缩放</span><span class="value" id="zoomValue">1.0x</span></span>
-                <input id="zoomRange" type="range" min="1" max="24" step="0.1" value="1" />
-              </label>
+              <div class="label-group">
+                <div class="label-line"><span class="label-title">地形重置</span></div>
+                <div class="row">
+                  <button id="btnTerrainUniformReset">均匀光照/流失</button>
+                </div>
+              </div>
             </div>
 
-            <p id="toolHint">当前模式：播种。左键拖动绘制；滚轮缩放；中键拖动平移。</p>
+            <p id="mapHint">地图编辑建议：优先使用“复合”视图观察地形，再用墙体/擦除进行微调。</p>
           </div>
         </aside>
 

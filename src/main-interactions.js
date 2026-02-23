@@ -39,23 +39,36 @@ export function bindInteractions({
     btnModeDisturb,
     btnModeAnnihilate,
     btnModeWall,
+    btnModeErase,
+    btnModeLightUp,
+    btnModeLightDown,
+    btnModeLossUp,
+    btnModeLossDown,
     btnShapeCircle,
     btnShapeSquare,
     btnShapeRect,
     btnShapeTriangle,
+    btnViewEco,
+    btnViewTerrainLight,
+    btnViewTerrainLoss,
+    btnViewTerrainMix,
     btnPresetEmpty,
     btnPresetFourRooms,
     btnPresetMaze,
     btnPresetBorder,
     btnPresetHourglass,
-    btnPresetRings
+    btnPresetRings,
+    btnMapUndo,
+    btnMapRedo,
+    btnTerrainUniformReset
   } = buttons;
   const {
     speedInput,
     radiusInput,
     geneInput,
     sunSpeedInput,
-    zoomInput
+    zoomInput,
+    terrainStrengthInput
   } = inputs;
 
   function paintFromEvent(event) {
@@ -64,6 +77,13 @@ export function bindInteractions({
     const mode = state.brushMode || 'life';
     const shape = state.brushShape || 'circle';
     const options = { gene: Number(geneInput.value), energy: 24, shape };
+    if (mode === 'terrainLightUp' || mode === 'terrainLightDown' || mode === 'terrainLossUp' || mode === 'terrainLossDown') {
+      const channel = mode.includes('Light') ? 'light' : 'loss';
+      const direction = (mode.endsWith('Up') ? 1 : -1);
+      const strength = Number(terrainStrengthInput?.value ?? 0.08);
+      sendToWorker({ type: 'applyTerrainBrush', cx: gx, cy: gy, radius, shape, channel, delta: direction * strength });
+      return;
+    }
     sendToWorker({ type: 'applyBrush', cx: gx, cy: gy, radius, mode, options });
   }
 
@@ -71,7 +91,12 @@ export function bindInteractions({
     { btn: btnModeLife, mode: 'life', label: '播种', cursor: 'crosshair' },
     { btn: btnModeDisturb, mode: 'disturb', label: '干扰', cursor: 'crosshair' },
     { btn: btnModeAnnihilate, mode: 'annihilate', label: '毁灭', cursor: 'crosshair' },
-    { btn: btnModeWall, mode: 'wall', label: '墙体', cursor: 'crosshair' }
+    { btn: btnModeWall, mode: 'wall', label: '墙体', cursor: 'crosshair' },
+    { btn: btnModeErase, mode: 'erase', label: '擦除', cursor: 'crosshair' },
+    { btn: btnModeLightUp, mode: 'terrainLightUp', label: '光照+', cursor: 'crosshair' },
+    { btn: btnModeLightDown, mode: 'terrainLightDown', label: '光照-', cursor: 'crosshair' },
+    { btn: btnModeLossUp, mode: 'terrainLossUp', label: '流失+', cursor: 'crosshair' },
+    { btn: btnModeLossDown, mode: 'terrainLossDown', label: '流失-', cursor: 'crosshair' }
   ];
 
   function updateCanvasCursor() {
@@ -108,6 +133,25 @@ export function bindInteractions({
     });
   });
 
+  const viewButtons = [
+    { btn: btnViewEco, mode: 'eco', label: '生态' },
+    { btn: btnViewTerrainLight, mode: 'terrainLight', label: '地形光照' },
+    { btn: btnViewTerrainLoss, mode: 'terrainLoss', label: '地形流失' },
+    { btn: btnViewTerrainMix, mode: 'terrainMix', label: '复合地形' }
+  ];
+
+  const applyViewMode = (mode, label) => {
+    state.viewMode = mode;
+    viewButtons.forEach(v => v.btn && v.btn.classList.toggle('is-active', v.mode === mode));
+    syncViewToWorker();
+    panel.hint.textContent = `当前视图：${label}`;
+  };
+
+  viewButtons.forEach(({ btn, mode, label }) => {
+    if (!btn) return;
+    btn.addEventListener('click', () => applyViewMode(mode, label));
+  });
+
   const presetButtons = [
     { btn: btnPresetEmpty, preset: 'empty', label: '空地' },
     { btn: btnPresetFourRooms, preset: 'fourRooms', label: '四宫格' },
@@ -120,10 +164,33 @@ export function bindInteractions({
   presetButtons.forEach(({ btn, preset, label }) => {
     if (!btn) return;
     btn.addEventListener('click', () => {
+      sendToWorker({ type: 'pushTerrainHistory', clearRedo: true });
       sendToWorker({ type: 'loadPreset', presetName: preset });
-      panel.hint.textContent = `已加载地图：${label}`;
+      panel.hint.textContent = `已加载地图：${label}（可撤销）`;
     });
   });
+
+  if (btnMapUndo) {
+    btnMapUndo.addEventListener('click', () => {
+      sendToWorker({ type: 'undoTerrainEdit' });
+      panel.hint.textContent = '已请求撤销地图编辑';
+    });
+  }
+
+  if (btnMapRedo) {
+    btnMapRedo.addEventListener('click', () => {
+      sendToWorker({ type: 'redoTerrainEdit' });
+      panel.hint.textContent = '已请求重做地图编辑';
+    });
+  }
+
+  if (btnTerrainUniformReset) {
+    btnTerrainUniformReset.addEventListener('click', () => {
+      sendToWorker({ type: 'pushTerrainHistory', clearRedo: true });
+      sendToWorker({ type: 'resetTerrainUniform' });
+      panel.hint.textContent = '已重置为均匀地形（光照=1，流失=1）';
+    });
+  }
 
   btnPause.addEventListener('click', () => {
     state.running = !state.running;
@@ -174,18 +241,27 @@ export function bindInteractions({
     syncReadouts();
   });
 
+  if (sunSpeedInput) {
+    sunSpeedInput.addEventListener('input', () => {
+      const sunSpeed = Number(sunSpeedInput.value);
+      world.config.sunSpeed = sunSpeed;
+      sendToWorker({ type: 'setSunSpeed', value: sunSpeed });
+      syncReadouts();
+    });
+  }
+
+  if (terrainStrengthInput) {
+    terrainStrengthInput.addEventListener('input', () => {
+      state.terrainBrushStrength = Number(terrainStrengthInput.value);
+      syncReadouts();
+    });
+  }
+
   radiusInput.addEventListener('input', () => {
     syncReadouts();
   });
 
   geneInput.addEventListener('input', () => {
-    syncReadouts();
-  });
-
-  sunSpeedInput.addEventListener('input', () => {
-    const sunSpeed = Number(sunSpeedInput.value);
-    world.config.sunSpeed = sunSpeed;
-    sendToWorker({ type: 'setSunSpeed', value: sunSpeed });
     syncReadouts();
   });
 
@@ -213,6 +289,16 @@ export function bindInteractions({
     if (event.button !== 0) return;
     simCanvas.setPointerCapture(event.pointerId);
     state.pointerMode = 'paint';
+    if (
+      state.brushMode === 'wall' ||
+      state.brushMode === 'erase' ||
+      state.brushMode === 'terrainLightUp' ||
+      state.brushMode === 'terrainLightDown' ||
+      state.brushMode === 'terrainLossUp' ||
+      state.brushMode === 'terrainLossDown'
+    ) {
+      sendToWorker({ type: 'pushTerrainHistory', clearRedo: true });
+    }
     paintFromEvent(event);
   });
 

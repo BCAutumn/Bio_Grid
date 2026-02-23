@@ -1,4 +1,9 @@
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+const normalize = (v, min, max) => {
+  const span = max - min;
+  if (span <= 0) return 0;
+  return clamp((v - min) / span, 0, 1);
+};
 const GENE_LUT_SIZE = 256;
 const SAT_LUT_SIZE = 64;
 const SAT_E_MAX = 40;
@@ -40,9 +45,23 @@ for (let gi = 0; gi < GENE_LUT_SIZE; gi++) {
 export function paintWorldToPixels(world, pixels, options = {}) {
   const { type, biomass, energy, gene, age } = world.front;
   const showAgingGlow = !!options.showAgingGlow;
+  const viewMode = options.viewMode || 'eco';
+  const terrain = world.terrain;
+  const terrainLight = terrain?.light;
+  const terrainLoss = terrain?.loss;
+  const lightMin = terrain?.lightMin ?? 1;
+  const lightMax = terrain?.lightMax ?? 1;
+  const lossMin = terrain?.lossMin ?? 1;
+  const lossMax = terrain?.lossMax ?? 1;
+
   for (let i = 0; i < world.size; i++) {
     const offset = i * 4;
     const t = type[i];
+    const lightFactor = terrainLight ? terrainLight[i] : 1;
+    const lossFactor = terrainLoss ? terrainLoss[i] : 1;
+    const lightNorm = normalize(lightFactor, lightMin, lightMax);
+    const lossNorm = normalize(lossFactor, lossMin, lossMax);
+
     if (t === 3) {
       pixels[offset] = 210;
       pixels[offset + 1] = 215;
@@ -51,12 +70,61 @@ export function paintWorldToPixels(world, pixels, options = {}) {
       continue;
     }
 
-    const g = clamp(gene[i], 0, 1);
-    const e = Math.max(0, energy[i]);
-    const gIdx = (g * (GENE_LUT_SIZE - 1)) | 0;
-    const eIdx = Math.min(SAT_LUT_SIZE - 1, ((e / SAT_E_MAX) * (SAT_LUT_SIZE - 1)) | 0);
-    const lutOffset = (gIdx * SAT_LUT_SIZE + eIdx) * 3;
-    const value = t === 1 ? clamp((biomass[i] * 90 + Math.min(12, e * 0.25)) / 100, 0, 1) : clamp((e * 0.08) / 100, 0, 0.18);
+    if (viewMode === 'terrainLight') {
+      const v = 28 + lightNorm * 210;
+      // 金黄色光照热力图：低值偏棕，高值偏亮金，便于直观看“光照富集区”。
+      pixels[offset] = 28 + v * 1.05;
+      pixels[offset + 1] = 20 + v * 0.78;
+      pixels[offset + 2] = 6 + v * 0.18;
+      pixels[offset + 3] = 255;
+      continue;
+    }
+
+    if (viewMode === 'terrainLoss') {
+      pixels[offset] = 35 + lossNorm * 210;
+      pixels[offset + 1] = 145 - lossNorm * 90;
+      pixels[offset + 2] = 215 - lossNorm * 185;
+      pixels[offset + 3] = 255;
+      continue;
+    }
+
+    if (viewMode === 'terrainMix') {
+      // 高对比复合地形：R 表示流失，G/B 表示光照，便于快速看出“高光高耗/低光低耗”等组合。
+      pixels[offset] = 40 + lossNorm * 210;
+      pixels[offset + 1] = 30 + lightNorm * 210;
+      pixels[offset + 2] = 30 + (1 - lossNorm) * 60 + lightNorm * 150;
+      pixels[offset + 3] = 255;
+      continue;
+    }
+
+    if (t === 0) {
+      let r = 5 + lightNorm * 14 + lossNorm * 14;
+      let gg = 8 + lightNorm * 21 - lossNorm * 5;
+      let b = 12 + lightNorm * 28 - lossNorm * 10;
+      const e = energy[i];
+      if (e > 0) {
+        const eIdx = Math.min(SAT_LUT_SIZE - 1, ((e / SAT_E_MAX) * (SAT_LUT_SIZE - 1)) | 0);
+        const lutOffset = eIdx * 3; // gIdx is 0
+        const value = Math.min(0.18, e * 0.0008);
+        const scale = value * 255;
+        r += HSV_COEFF_LUT[lutOffset] * scale;
+        gg += HSV_COEFF_LUT[lutOffset + 1] * scale;
+        b += HSV_COEFF_LUT[lutOffset + 2] * scale;
+      }
+      pixels[offset] = clamp(r, 0, 255);
+      pixels[offset + 1] = clamp(gg, 0, 255);
+      pixels[offset + 2] = clamp(b, 0, 255);
+      pixels[offset + 3] = 255;
+      continue;
+    }
+
+    const eRaw = energy[i];
+    const e = eRaw > 0 ? eRaw : 0;
+    const g = gene[i];
+    const gIdx = (g * 255) | 0; // GENE_LUT_SIZE - 1 = 255
+    const eIdx = e < 40 ? ((e / 40) * 63) | 0 : 63; // SAT_E_MAX = 40, SAT_LUT_SIZE - 1 = 63
+    const lutOffset = (gIdx * 64 + eIdx) * 3; // SAT_LUT_SIZE = 64
+    const value = t === 1 ? Math.min(1, biomass[i] * 0.9 + Math.min(0.12, e * 0.0025)) : Math.min(0.18, e * 0.0008);
     const scale = value * 255;
     let r = HSV_COEFF_LUT[lutOffset] * scale;
     let gg = HSV_COEFF_LUT[lutOffset + 1] * scale;
@@ -75,32 +143,6 @@ export function paintWorldToPixels(world, pixels, options = {}) {
     pixels[offset + 1] = gg;
     pixels[offset + 2] = b;
     pixels[offset + 3] = 255;
-  }
-}
-
-export function updateSkyBadge(world, orbitEl, timeOverride = null) {
-  if (!orbitEl) return;
-  const time = timeOverride == null ? world.time : timeOverride;
-  const cycle = (time * world.config.sunSpeed) % (Math.PI * 2);
-  const sun = Math.max(0, Math.sin(cycle));
-  orbitEl.style.setProperty('--sun', sun.toFixed(4));
-
-  if (cycle < Math.PI) {
-    const t = cycle / Math.PI;
-    const x = t * 100;
-    const y = 95 - Math.sin(cycle) * 70;
-    orbitEl.style.setProperty('--sun-x', x.toFixed(2));
-    orbitEl.style.setProperty('--sun-y', y.toFixed(2));
-    orbitEl.style.setProperty('--sun-a', '1');
-    orbitEl.style.setProperty('--moon-a', '0');
-  } else {
-    const t = (cycle - Math.PI) / Math.PI;
-    const x = t * 100;
-    const y = 95 - Math.sin(cycle - Math.PI) * 70;
-    orbitEl.style.setProperty('--moon-x', x.toFixed(2));
-    orbitEl.style.setProperty('--moon-y', y.toFixed(2));
-    orbitEl.style.setProperty('--moon-a', '1');
-    orbitEl.style.setProperty('--sun-a', '0');
   }
 }
 
@@ -177,4 +219,34 @@ export function drawCellValuesOverlay(ctx, world, view, canvasW, canvasH) {
     ctx.fillText(en, px + cellW - pad, py + cellH - pad);
   }
   ctx.restore();
+}
+
+export function updateSkyBadge(orbitEl, simTime, sunSpeed) {
+  if (!orbitEl) return;
+  const speed = Number.isFinite(sunSpeed) ? sunSpeed : 0;
+  const t = Number.isFinite(simTime) ? simTime : 0;
+  const phase = (t * speed) % (Math.PI * 2);
+  const s = Math.sin(phase);
+  const c = Math.cos(phase);
+  const sunlight = s > 0 ? s : 0;
+
+  // Sun arc: x follows cos, y follows sin (above horizon when s>0)
+  const sunX = 50 - c * 46;
+  const sunY = 84 - s * 68;
+  const sunA = s > 0 ? 1 : 0;
+
+  // Moon: opposite phase
+  const ms = Math.sin(phase + Math.PI);
+  const mc = Math.cos(phase + Math.PI);
+  const moonX = 50 - mc * 46;
+  const moonY = 84 - ms * 68;
+  const moonA = s <= 0 ? 1 : 0;
+
+  orbitEl.style.setProperty('--sun', String(sunlight));
+  orbitEl.style.setProperty('--sun-x', String(sunX));
+  orbitEl.style.setProperty('--sun-y', String(sunY));
+  orbitEl.style.setProperty('--sun-a', String(sunA));
+  orbitEl.style.setProperty('--moon-x', String(moonX));
+  orbitEl.style.setProperty('--moon-y', String(moonY));
+  orbitEl.style.setProperty('--moon-a', String(moonA));
 }

@@ -82,7 +82,7 @@ export function applyBrush(world, cx, cy, radius, mode, options = {}) {
         writeBoth(world, i, { type: CellType.PLANT, biomass: Math.min(1, maxB), energy: options.energy ?? 24, gene: g, age: 0 });
       } else if (mode === 'disturb') {
         writeBoth(world, i, { energy: 0 });
-      } else if (mode === 'annihilate') {
+      } else if (mode === 'annihilate' || mode === 'erase') {
         writeBoth(world, i, { type: CellType.EMPTY, biomass: 0, energy: 0, gene: 0, age: 0 });
       } else if (mode === 'wall') {
         writeBoth(world, i, { type: CellType.WALL, biomass: 0, energy: 0, gene: 0, age: 0 });

@@ -4,8 +4,8 @@ import { drawCellValuesOverlay, paintWorldToPixels } from './render.js';
 const CTRL_WRITE_SLOT = 0;
 const CTRL_VERSION = 1;
 const CELL_VALUES_MIN_ZOOM = 8;
-const RENDER_INTERVAL_MS = 15;
-const SIM_BUDGET_PER_LOOP_MS = 14;
+const RENDER_INTERVAL_MS = 33;
+const SIM_BUDGET_PER_LOOP_MS = 24;
 
 const state = {
   world: null,
@@ -35,21 +35,69 @@ const state = {
     height: 0,
     view: null,
     zoom: 1,
+    viewMode: 'eco',
     showCellValues: false,
     lastRenderTs: 0
   },
   fatalReported: false,
-  showAgingGlow: false
+  showAgingGlow: false,
+  terrainHistory: {
+    undo: [],
+    redo: [],
+    limit: 30
+  }
 };
 
 const clampSpeed = (v) => Math.max(0.2, Math.min(480, v));
+const clampSunSpeed = (v) => Math.max(0.004, Math.min(0.12, v));
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+function inBrushShape(dx, dy, r, shape) {
+  if (shape === 'square') return Math.abs(dx) <= r && Math.abs(dy) <= r;
+  if (shape === 'rect') return Math.abs(dx) <= r && Math.abs(dy) <= r * 0.5;
+  if (shape === 'triangle') {
+    if (dy < -r || dy > r * 0.5) return false;
+    const halfWidthAtY = r * (1 - (dy + r) / (1.5 * r));
+    return Math.abs(dx) <= halfWidthAtY && halfWidthAtY > 0;
+  }
+  return dx * dx + dy * dy <= r * r;
+}
+
+function applyTerrainBrush(world, cx, cy, radius, shape, channel, delta) {
+  const terrain = world.terrain;
+  if (!terrain) return;
+  const target = channel === 'loss' ? terrain.loss : terrain.light;
+  const min = channel === 'loss' ? terrain.lossMin : terrain.lightMin;
+  const max = channel === 'loss' ? terrain.lossMax : terrain.lightMax;
+  const r = Math.max(1, Number(radius) || 1);
+  const sx = Math.max(0, Math.floor(cx - r));
+  const ex = Math.min(world.width - 1, Math.ceil(cx + r));
+  const sy = Math.max(0, Math.floor(cy - r));
+  const ey = Math.min(world.height - 1, Math.ceil(cy + r));
+  const amount = Number(delta) || 0;
+  if (!amount) return;
+
+  for (let y = sy; y <= ey; y++) for (let x = sx; x <= ex; x++) {
+    const dx = x - cx;
+    const dy = y - cy;
+    if (!inBrushShape(dx, dy, r, shape)) continue;
+    const i = y * world.width + x;
+    target[i] = clamp(target[i] + amount, min, max);
+  }
+}
+
+function resetTerrainUniform(world) {
+  if (!world?.terrain) return;
+  world.terrain.light.fill(1);
+  world.terrain.loss.fill(1);
+}
 
 function updateSnapshotInterval() {
   // Worker 渲染时画面不依赖快照，降低统计频率可减少主循环抖动。
   state.snapshotIntervalMs = state.render.mode === 'worker' ? 80 : 15;
 }
 
-function applyView(sx, sy, sw, sh, zoom, showCellValues) {
+function applyView(sx, sy, sw, sh, zoom, showCellValues, viewMode) {
   const world = state.world;
   if (!world) return;
   const safeSw = Number.isFinite(sw) && sw > 0 ? sw : world.width;
@@ -63,6 +111,7 @@ function applyView(sx, sy, sw, sh, zoom, showCellValues) {
   state.render.view = next;
   state.render.zoom = Number.isFinite(zoom) ? zoom : state.render.zoom;
   if (typeof showCellValues === 'boolean') state.render.showCellValues = showCellValues;
+  if (typeof viewMode === 'string') state.render.viewMode = viewMode;
 }
 
 function initRenderer(offscreenSpec, width, height) {
@@ -109,6 +158,102 @@ function reportWorkerError(stage, error) {
   });
 }
 
+function cloneWorldState(world) {
+  return {
+    front: {
+      biomass: world.front.biomass.slice(),
+      energy: world.front.energy.slice(),
+      gene: world.front.gene.slice(),
+      age: world.front.age.slice(),
+      type: world.front.type.slice()
+    },
+    back: {
+      biomass: world.back.biomass.slice(),
+      energy: world.back.energy.slice(),
+      gene: world.back.gene.slice(),
+      age: world.back.age.slice(),
+      type: world.back.type.slice()
+    },
+    time: world.time,
+    sunlight: world.sunlight,
+    stats: { ...world.stats },
+    wallCount: world.wallCount
+  };
+}
+
+function restoreWorldState(world, snapshot) {
+  if (!world || !snapshot) return;
+  world.front.biomass.set(snapshot.front.biomass);
+  world.front.energy.set(snapshot.front.energy);
+  world.front.gene.set(snapshot.front.gene);
+  world.front.age.set(snapshot.front.age);
+  world.front.type.set(snapshot.front.type);
+  world.back.biomass.set(snapshot.back.biomass);
+  world.back.energy.set(snapshot.back.energy);
+  world.back.gene.set(snapshot.back.gene);
+  world.back.age.set(snapshot.back.age);
+  world.back.type.set(snapshot.back.type);
+  world.time = snapshot.time;
+  world.sunlight = snapshot.sunlight;
+  world.stats.tick = snapshot.stats.tick;
+  world.stats.totalBiomass = snapshot.stats.totalBiomass;
+  world.stats.avgGene = snapshot.stats.avgGene;
+  world.stats.plantCount = snapshot.stats.plantCount;
+  world.wallCount = snapshot.wallCount;
+}
+
+function postTerrainHistoryState(action = 'sync') {
+  self.postMessage({
+    type: 'terrainHistoryState',
+    action,
+    canUndo: state.terrainHistory.undo.length > 0,
+    canRedo: state.terrainHistory.redo.length > 0
+  });
+}
+
+function pushTerrainHistory(clearRedo = true) {
+  if (!state.world) return;
+  const { undo, redo, limit } = state.terrainHistory;
+  undo.push(cloneWorldState(state.world));
+  if (undo.length > limit) undo.shift();
+  if (clearRedo) redo.length = 0;
+  postTerrainHistoryState('push');
+}
+
+function undoTerrainEdit() {
+  if (!state.world) return;
+  const { undo, redo } = state.terrainHistory;
+  if (!undo.length) {
+    postTerrainHistoryState('undo-empty');
+    return;
+  }
+  const current = cloneWorldState(state.world);
+  const prev = undo.pop();
+  redo.push(current);
+  restoreWorldState(state.world, prev);
+  state.accumulator = 0;
+  postSnapshot(true);
+  renderFrame(true);
+  postTerrainHistoryState('undo');
+}
+
+function redoTerrainEdit() {
+  if (!state.world) return;
+  const { undo, redo } = state.terrainHistory;
+  if (!redo.length) {
+    postTerrainHistoryState('redo-empty');
+    return;
+  }
+  const current = cloneWorldState(state.world);
+  const next = redo.pop();
+  undo.push(current);
+  restoreWorldState(state.world, next);
+  state.accumulator = 0;
+  postSnapshot(true);
+  renderFrame(true);
+  postTerrainHistoryState('redo');
+}
+
 function renderFrame(force = false) {
   if (state.render.mode !== 'worker' || !state.world) return;
   try {
@@ -118,7 +263,7 @@ function renderFrame(force = false) {
 
     const { world, render } = state;
     const view = render.view || { sx: 0, sy: 0, sw: world.width, sh: world.height };
-    paintWorldToPixels(world, render.frame.data, { showAgingGlow: state.showAgingGlow });
+    paintWorldToPixels(world, render.frame.data, { showAgingGlow: state.showAgingGlow, viewMode: render.viewMode });
     render.bufferCtx.putImageData(render.frame, 0, 0);
     render.ctx.imageSmoothingEnabled = false;
     render.ctx.clearRect(0, 0, render.width, render.height);
@@ -139,6 +284,7 @@ function publishSharedSnapshot(force = false) {
   if (!force && now - state.lastSnapshotTs < state.snapshotIntervalMs) return;
   state.lastSnapshotTs = now;
   const stats = computeStats(world);
+  const day = (world.time * (world.config.sunSpeed || 0)) / (Math.PI * 2);
   const currentSlot = Atomics.load(shared.control, CTRL_WRITE_SLOT);
   const nextSlot = currentSlot ^ 1;
   const slot = shared.slots[nextSlot];
@@ -152,6 +298,7 @@ function publishSharedSnapshot(force = false) {
     type: 'snapshotMeta',
     version,
     time: world.time,
+    day,
     sunlight: world.sunlight,
     stats: {
       tick: stats.tick,
@@ -169,6 +316,7 @@ function publishTransferSnapshot(force = false) {
   if (!force && now - state.lastSnapshotTs < state.snapshotIntervalMs) return;
   state.lastSnapshotTs = now;
   const stats = computeStats(world);
+  const day = (world.time * (world.config.sunSpeed || 0)) / (Math.PI * 2);
   const biomass = world.front.biomass.slice();
   const energy = world.front.energy.slice();
   const gene = world.front.gene.slice();
@@ -177,6 +325,7 @@ function publishTransferSnapshot(force = false) {
   self.postMessage({
     type: 'snapshot',
     time: world.time,
+    day,
     sunlight: world.sunlight,
     stats: {
       tick: stats.tick,
@@ -199,9 +348,11 @@ function publishMetaOnly(force = false) {
   if (!force && now - state.lastSnapshotTs < state.snapshotIntervalMs) return;
   state.lastSnapshotTs = now;
   const stats = computeStats(world);
+  const day = (world.time * (world.config.sunSpeed || 0)) / (Math.PI * 2);
   self.postMessage({
     type: 'snapshotMeta',
     time: world.time,
+    day,
     sunlight: world.sunlight,
     stats: {
       tick: stats.tick,
@@ -315,7 +466,7 @@ self.onmessage = (event) => {
       const width = Number(message.width) || 180;
       const height = Number(message.height) || 180;
       state.world = createWorld(width, height);
-      state.world.config.sunSpeed = Number(message.sunSpeed) || state.world.config.sunSpeed;
+      state.world.config.sunSpeed = clampSunSpeed(Number(message.sunSpeed) || state.world.config.sunSpeed);
       state.ticksPerSecond = clampSpeed(Number(message.ticksPerSecond) || state.ticksPerSecond);
       state.running = message.running !== false;
       state.accumulator = 0;
@@ -326,14 +477,17 @@ self.onmessage = (event) => {
       state.perf.lastReportTs = performance.now();
       state.perf.loops = 0;
       state.perf.steps = 0;
+      state.terrainHistory.undo.length = 0;
+      state.terrainHistory.redo.length = 0;
       initSharedChannels(message.shared, state.world.size);
       initRenderer(message.offscreen, message.offscreen?.width, message.offscreen?.height);
       updateSnapshotInterval();
-      applyView(0, 0, state.world.width, state.world.height, 1, false);
+      applyView(0, 0, state.world.width, state.world.height, 1, false, 'eco');
       const seedCount = Number(message.seedCount) || 0;
       if (seedCount > 0) randomSeed(state.world, seedCount);
       postSnapshot(true);
       renderFrame(true);
+      postTerrainHistoryState('init');
       self.postMessage({ type: 'ready', sharedMode: state.useShared, renderMode: state.render.mode });
       return;
     }
@@ -349,12 +503,14 @@ self.onmessage = (event) => {
     }
     case 'setSunSpeed': {
       if (!state.world) return;
-      state.world.config.sunSpeed = Number(message.value) || state.world.config.sunSpeed;
+      const raw = Number(message.value);
+      if (!Number.isFinite(raw)) return;
+      state.world.config.sunSpeed = clampSunSpeed(raw);
       return;
     }
     case 'setView': {
       if (!state.world) return;
-      applyView(message.sx, message.sy, message.sw, message.sh, message.zoom, message.showCellValues);
+      applyView(message.sx, message.sy, message.sw, message.sh, message.zoom, message.showCellValues, message.viewMode);
       if (typeof message.showAgingGlow === 'boolean') state.showAgingGlow = message.showAgingGlow;
       renderFrame(true);
       return;
@@ -376,12 +532,37 @@ self.onmessage = (event) => {
       renderFrame(true);
       return;
     }
+    case 'applyTerrainBrush': {
+      if (!state.world) return;
+      applyTerrainBrush(
+        state.world,
+        Number(message.cx),
+        Number(message.cy),
+        Number(message.radius),
+        message.shape || 'circle',
+        message.channel || 'light',
+        Number(message.delta) || 0
+      );
+      postSnapshot(true);
+      renderFrame(true);
+      return;
+    }
+    case 'resetTerrainUniform': {
+      if (!state.world) return;
+      resetTerrainUniform(state.world);
+      postSnapshot(true);
+      renderFrame(true);
+      return;
+    }
     case 'reset': {
       if (!state.world) return;
       resetWorld(state.world);
       state.accumulator = 0;
+      state.terrainHistory.undo.length = 0;
+      state.terrainHistory.redo.length = 0;
       postSnapshot(true);
       renderFrame(true);
+      postTerrainHistoryState('reset');
       return;
     }
     case 'loadPreset': {
@@ -397,6 +578,19 @@ self.onmessage = (event) => {
       randomSeed(state.world, Number(message.count) || 160);
       postSnapshot(true);
       renderFrame(true);
+      return;
+    }
+    case 'pushTerrainHistory': {
+      if (!state.world) return;
+      pushTerrainHistory(message.clearRedo !== false);
+      return;
+    }
+    case 'undoTerrainEdit': {
+      undoTerrainEdit();
+      return;
+    }
+    case 'redoTerrainEdit': {
+      redoTerrainEdit();
       return;
     }
     default:
