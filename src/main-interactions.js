@@ -8,14 +8,6 @@ function screenToGrid(event, simCanvas, currentView) {
   return [Math.floor(view.sx + nx * view.sw), Math.floor(view.sy + ny * view.sh)];
 }
 
-function activeMode(event) {
-  const usingMiddle = (event.buttons & 4) === 4 || event.button === 1;
-  const usingRight = (event.buttons & 2) === 2 || event.button === 2;
-  if (usingMiddle) return 'wall';
-  if (usingRight) return event.shiftKey ? 'annihilate' : 'disturb';
-  return 'life';
-}
-
 export function bindInteractions({
   simCanvas,
   panel,
@@ -41,7 +33,22 @@ export function bindInteractions({
     btnReset,
     btnSeed,
     btnViewReset,
-    btnCellValues
+    btnCellValues,
+    btnAgingGlow,
+    btnModeLife,
+    btnModeDisturb,
+    btnModeAnnihilate,
+    btnModeWall,
+    btnShapeCircle,
+    btnShapeSquare,
+    btnShapeRect,
+    btnShapeTriangle,
+    btnPresetEmpty,
+    btnPresetFourRooms,
+    btnPresetMaze,
+    btnPresetBorder,
+    btnPresetHourglass,
+    btnPresetRings
   } = buttons;
   const {
     speedInput,
@@ -54,14 +61,69 @@ export function bindInteractions({
   function paintFromEvent(event) {
     const [gx, gy] = screenToGrid(event, simCanvas, currentView);
     const radius = Number(radiusInput.value);
-    const mode = activeMode(event);
-    if (mode === 'life') {
-      sendToWorker({ type: 'applyBrush', cx: gx, cy: gy, radius, mode, options: { gene: Number(geneInput.value), energy: 24 } });
-    } else {
-      sendToWorker({ type: 'applyBrush', cx: gx, cy: gy, radius, mode });
-    }
-    panel.hint.textContent = mode === 'life' ? '生命之笔' : mode === 'disturb' ? '轻度扰动 (右键)' : mode === 'annihilate' ? '重度毁灭 (Shift + 右键)' : '墙体绘制 (中键)';
+    const mode = state.brushMode || 'life';
+    const shape = state.brushShape || 'circle';
+    const options = { gene: Number(geneInput.value), energy: 24, shape };
+    sendToWorker({ type: 'applyBrush', cx: gx, cy: gy, radius, mode, options });
   }
+
+  const brushButtons = [
+    { btn: btnModeLife, mode: 'life', label: '播种', cursor: 'crosshair' },
+    { btn: btnModeDisturb, mode: 'disturb', label: '干扰', cursor: 'crosshair' },
+    { btn: btnModeAnnihilate, mode: 'annihilate', label: '毁灭', cursor: 'crosshair' },
+    { btn: btnModeWall, mode: 'wall', label: '墙体', cursor: 'crosshair' }
+  ];
+
+  function updateCanvasCursor() {
+    const mode = state.brushMode || 'life';
+    const btn = brushButtons.find(b => b.mode === mode);
+    simCanvas.style.cursor = btn?.cursor || 'crosshair';
+  }
+
+  brushButtons.forEach(({ btn, mode, label }) => {
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      state.brushMode = mode;
+      brushButtons.forEach(b => b.btn && b.btn.classList.toggle('is-active', b.mode === mode));
+      updateCanvasCursor();
+      const text = `当前模式：${label}。左键拖动绘制；滚轮缩放；中键拖动平移。`;
+      panel.hint.textContent = text;
+    });
+  });
+
+  // 笔刷形状按钮
+  const shapeButtons = [
+    { btn: btnShapeCircle, shape: 'circle', label: '圆形' },
+    { btn: btnShapeSquare, shape: 'square', label: '正方形' },
+    { btn: btnShapeRect, shape: 'rect', label: '长方形' },
+    { btn: btnShapeTriangle, shape: 'triangle', label: '三角形' }
+  ];
+
+  shapeButtons.forEach(({ btn, shape, label }) => {
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      state.brushShape = shape;
+      shapeButtons.forEach(b => b.btn && b.btn.classList.toggle('is-active', b.shape === shape));
+      panel.hint.textContent = `笔刷形状：${label}`;
+    });
+  });
+
+  const presetButtons = [
+    { btn: btnPresetEmpty, preset: 'empty', label: '空地' },
+    { btn: btnPresetFourRooms, preset: 'fourRooms', label: '四宫格' },
+    { btn: btnPresetMaze, preset: 'maze', label: '迷宫' },
+    { btn: btnPresetBorder, preset: 'border', label: '边框' },
+    { btn: btnPresetHourglass, preset: 'hourglass', label: '沙漏' },
+    { btn: btnPresetRings, preset: 'rings', label: '同心环' }
+  ];
+
+  presetButtons.forEach(({ btn, preset, label }) => {
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      sendToWorker({ type: 'loadPreset', presetName: preset });
+      panel.hint.textContent = `已加载地图：${label}`;
+    });
+  });
 
   btnPause.addEventListener('click', () => {
     state.running = !state.running;
@@ -96,6 +158,16 @@ export function bindInteractions({
       : '格子数值已关闭';
   });
 
+  if (btnAgingGlow) {
+    btnAgingGlow.addEventListener('click', () => {
+      state.showAgingGlow = !state.showAgingGlow;
+      sendToWorker({ type: 'setShowAgingGlow', value: state.showAgingGlow });
+      syncViewToWorker();
+      syncReadouts();
+      panel.hint.textContent = state.showAgingGlow ? '衰老预警已开启（即将老死的细胞发红光）' : '衰老预警已关闭';
+    });
+  }
+
   speedInput.addEventListener('input', () => {
     state.ticksPerSecond = Number(speedInput.value);
     sendToWorker({ type: 'setTicksPerSecond', value: state.ticksPerSecond });
@@ -127,20 +199,26 @@ export function bindInteractions({
   simCanvas.addEventListener('contextmenu', (event) => event.preventDefault());
   simCanvas.addEventListener('pointerdown', (event) => {
     event.preventDefault();
-    simCanvas.setPointerCapture(event.pointerId);
-    if (state.spaceDown) {
+    // 中键（button === 1）用于平移拖动
+    if (event.button === 1) {
+      simCanvas.setPointerCapture(event.pointerId);
       const view = currentView();
       state.pointerMode = 'pan';
       state.panStart = { x: event.clientX, y: event.clientY, cx: camera.x, cy: camera.y, sw: view.sw, sh: view.sh };
+      simCanvas.style.cursor = 'grabbing';
       panel.hint.textContent = '平移视角中';
       return;
     }
+    // 左键（button === 0）用于绘制
+    if (event.button !== 0) return;
+    simCanvas.setPointerCapture(event.pointerId);
     state.pointerMode = 'paint';
     paintFromEvent(event);
   });
 
   simCanvas.addEventListener('pointermove', (event) => {
     if (state.pointerMode === 'paint') {
+      if ((event.buttons & 1) !== 1) return;
       paintFromEvent(event);
       return;
     }
@@ -157,24 +235,15 @@ export function bindInteractions({
   const endPointerAction = () => {
     state.pointerMode = 'none';
     state.panStart = null;
-    panel.hint.textContent = baseHint;
+    simCanvas.style.cursor = brushButtons.find(b => b.mode === state.brushMode)?.cursor || 'crosshair';
+    const modeLabel = brushButtons.find(b => b.mode === state.brushMode)?.label || '播种';
+    panel.hint.textContent = `当前模式：${modeLabel}。左键拖动绘制；滚轮缩放；中键拖动平移。`;
   };
 
   simCanvas.addEventListener('pointerup', endPointerAction);
   simCanvas.addEventListener('pointercancel', endPointerAction);
   simCanvas.addEventListener('lostpointercapture', endPointerAction);
 
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'Space') return;
-    state.spaceDown = true;
-    event.preventDefault();
-  });
-
-  window.addEventListener('keyup', (event) => {
-    if (event.code !== 'Space') return;
-    state.spaceDown = false;
-    if (state.pointerMode === 'none') panel.hint.textContent = baseHint;
-  });
 
   if (typeof onResize === 'function') window.addEventListener('resize', onResize);
 }

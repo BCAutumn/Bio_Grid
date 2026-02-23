@@ -5,22 +5,48 @@ export const DEFAULT_CONFIG = Object.freeze({
   diffuseNeighbor: 0.08,
   diffuseGradientThreshold: 1.0,
   diffuseGradientScale: 8.0,
-  baseCost: 0.001,
-  geneCostFactor: 0.006,
-  growthRate: 0.005,
-  decayRate: 0.002,
-  reproBiomass: 0.60,
-  reproEnergy: 10,
+  baseCost: 0.0004,
+  geneCostFactor: 0.002,
+  // 只有当结算后的能量达到该阈值，生物量才会增长（避免“刚天亮能量略正就瞬间回血”）。
+  growthEnergyThreshold: 6,
+  growthRate: 0.004,
+  decayRate: 0.0004,
+  reproBiomassRatio: 0.5,
+  reproEnergyRatio: 0.2,
   childBiomass: 0.32,
-  mutationStep: 0.04,
-  isolationEnergyLoss: 0.016,
+  mutationStep: 0.01,
+  mutationDistanceFactor: 0.1,
+  isolationEnergyLoss: 0.005,
   isolationZeroNeighborMultiplier: 2,
   isolationGeneBase: 0.4,
   isolationGeneFactor: 1.2,
   crowdNeighborSoft: 4,
-  crowdEnergyLoss: 0.0018,
+  crowdEnergyLoss: 0.0008,
   reproNeighborCap: 4,
-  maxEnergy: 40
+  // 体型（能量/生物量上限）与寿命：写进 config 方便对齐 RULES.md 与做参数搜索
+  energyMaxBase: 72,
+  energyMaxGeneRange: 36,
+  biomassMaxBase: 1.8,
+  biomassMaxGeneRange: 0.8,
+  ageMaxBase: 3,
+  ageMaxGeneRange: 1.5,
+
+  // 衰老：70% 寿命后线性加重，到临近老死时成本增至年轻时 4 倍（额外 +3x）
+  senescenceStartFrac: 0.7,
+  senescenceCostExtraMultiplier: 3,
+
+  // 光合作用：Income = Sunlight * (base + Gene * factor)
+  photoIncomeBase: 0.04,
+  photoIncomeGeneFactor: 0.0056,
+
+  // 孤独判定：邻居活体植物数 < isolationNeighborMin 时触发
+  isolationNeighborMin: 2,
+
+  // 繁殖：每个亲本分出能量的 shareFrac 给后代
+  reproEnergyShareFrac: 0.25,
+
+  // 用于 UI 显示的能量标尺（默认取保守型上限）；实际每格上限由基因决定
+  maxEnergy: 72
 });
 
 export const mergeConfig = (overrides = {}) => ({ ...DEFAULT_CONFIG, ...overrides });

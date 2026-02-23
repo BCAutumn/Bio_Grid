@@ -6,7 +6,7 @@ import {
   createWorld,
   setCell,
   tick
-} from '../src/sim-core.js';
+} from '../src/sim/index.js';
 
 const approx = (actual, expected, eps = 1e-6) => {
   assert.ok(Math.abs(actual - expected) <= eps, `Expected ${actual} ≈ ${expected}`);
@@ -44,7 +44,7 @@ test('energy diffuses among living plants and smooths spikes', () => {
 
   tick(world, () => 0.5);
 
-  // 3x1 的边界格子只有 1 个邻居：out=50, deg=1 => 邻居得 50，自身留 50
+  // 3x1 的边界格子只有 1 个邻居：扩散后各得 50，但 Gene=0.5 时 maxEnergy=56，未超上限
   approx(world.front.energy[0], 50);
   approx(world.front.energy[1], 50);
   approx(world.front.energy[2], 0);
@@ -89,16 +89,16 @@ test('mature plant reproduces and mutation stays clamped', () => {
     diffuseNeighbor: 0,
     baseCost: 0,
     geneCostFactor: 0,
-    reproBiomass: 0.9,
-    reproEnergy: 10,
+    reproBiomassRatio: 0.5,
+    reproEnergyRatio: 0.1,
     mutationStep: 0.05,
     childBiomass: 0.4,
     isolationEnergyLoss: 0
   });
-  setCell(world, 1, 1, { type: CellType.PLANT, biomass: 1, energy: 20, gene: 0.5 });
-  setCell(world, 0, 1, { type: CellType.PLANT, biomass: 1, energy: 20, gene: 0.5 });
+  setCell(world, 1, 1, { type: CellType.PLANT, biomass: 1.2, energy: 20, gene: 0.5 });
+  setCell(world, 0, 1, { type: CellType.PLANT, biomass: 1.2, energy: 20, gene: 0.5 });
 
-  tick(world, () => 1);
+  tick(world, () => 0);
 
   const plants = [];
   for (let i = 0; i < world.size; i++) if (world.front.type[i] === CellType.PLANT) plants.push(i);

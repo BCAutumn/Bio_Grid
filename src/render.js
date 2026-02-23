@@ -37,15 +37,16 @@ for (let gi = 0; gi < GENE_LUT_SIZE; gi++) {
   }
 }
 
-export function paintWorldToPixels(world, pixels) {
-  const { type, biomass, energy, gene } = world.front;
+export function paintWorldToPixels(world, pixels, options = {}) {
+  const { type, biomass, energy, gene, age } = world.front;
+  const showAgingGlow = !!options.showAgingGlow;
   for (let i = 0; i < world.size; i++) {
     const offset = i * 4;
     const t = type[i];
     if (t === 3) {
-      pixels[offset] = 45;
-      pixels[offset + 1] = 42;
-      pixels[offset + 2] = 34;
+      pixels[offset] = 210;
+      pixels[offset + 1] = 215;
+      pixels[offset + 2] = 220;
       pixels[offset + 3] = 255;
       continue;
     }
@@ -57,9 +58,22 @@ export function paintWorldToPixels(world, pixels) {
     const lutOffset = (gIdx * SAT_LUT_SIZE + eIdx) * 3;
     const value = t === 1 ? clamp((biomass[i] * 90 + Math.min(12, e * 0.25)) / 100, 0, 1) : clamp((e * 0.08) / 100, 0, 0.18);
     const scale = value * 255;
-    pixels[offset] = HSV_COEFF_LUT[lutOffset] * scale;
-    pixels[offset + 1] = HSV_COEFF_LUT[lutOffset + 1] * scale;
-    pixels[offset + 2] = HSV_COEFF_LUT[lutOffset + 2] * scale;
+    let r = HSV_COEFF_LUT[lutOffset] * scale;
+    let gg = HSV_COEFF_LUT[lutOffset + 1] * scale;
+    let b = HSV_COEFF_LUT[lutOffset + 2] * scale;
+    if (showAgingGlow && t === 1 && biomass[i] > 0 && age && age[i] > 0) {
+      const cellMaxAge = 3 + (1 - g) * 1.5;
+      const senescenceFactor = (age[i] - cellMaxAge * 0.7) / (cellMaxAge * 0.3);
+      if (senescenceFactor > 0) {
+        const glow = Math.min(1, senescenceFactor) * 0.85;
+        r = Math.min(255, r + (255 - r) * glow);
+        gg *= 1 - glow;
+        b *= 1 - glow;
+      }
+    }
+    pixels[offset] = r;
+    pixels[offset + 1] = gg;
+    pixels[offset + 2] = b;
     pixels[offset + 3] = 255;
   }
 }

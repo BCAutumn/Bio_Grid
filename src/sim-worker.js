@@ -1,4 +1,4 @@
-import { applyBrush, computeStats, createWorld, randomSeed, resetWorld, tick } from './sim-core.js';
+import { applyBrush, computeStats, createWorld, randomSeed, resetWorld, tick, loadPreset } from './sim/index.js';
 import { drawCellValuesOverlay, paintWorldToPixels } from './render.js';
 
 const CTRL_WRITE_SLOT = 0;
@@ -38,7 +38,8 @@ const state = {
     showCellValues: false,
     lastRenderTs: 0
   },
-  fatalReported: false
+  fatalReported: false,
+  showAgingGlow: false
 };
 
 const clampSpeed = (v) => Math.max(0.2, Math.min(480, v));
@@ -117,7 +118,7 @@ function renderFrame(force = false) {
 
     const { world, render } = state;
     const view = render.view || { sx: 0, sy: 0, sw: world.width, sh: world.height };
-    paintWorldToPixels(world, render.frame.data);
+    paintWorldToPixels(world, render.frame.data, { showAgingGlow: state.showAgingGlow });
     render.bufferCtx.putImageData(render.frame, 0, 0);
     render.ctx.imageSmoothingEnabled = false;
     render.ctx.clearRect(0, 0, render.width, render.height);
@@ -171,6 +172,7 @@ function publishTransferSnapshot(force = false) {
   const biomass = world.front.biomass.slice();
   const energy = world.front.energy.slice();
   const gene = world.front.gene.slice();
+  const age = world.front.age.slice();
   const cellType = world.front.type.slice();
   self.postMessage({
     type: 'snapshot',
@@ -185,8 +187,9 @@ function publishTransferSnapshot(force = false) {
     biomass: biomass.buffer,
     energy: energy.buffer,
     gene: gene.buffer,
+    age: age.buffer,
     cellType: cellType.buffer
-  }, [biomass.buffer, energy.buffer, gene.buffer, cellType.buffer]);
+  }, [biomass.buffer, energy.buffer, gene.buffer, age.buffer, cellType.buffer]);
 }
 
 function publishMetaOnly(force = false) {
@@ -352,6 +355,12 @@ self.onmessage = (event) => {
     case 'setView': {
       if (!state.world) return;
       applyView(message.sx, message.sy, message.sw, message.sh, message.zoom, message.showCellValues);
+      if (typeof message.showAgingGlow === 'boolean') state.showAgingGlow = message.showAgingGlow;
+      renderFrame(true);
+      return;
+    }
+    case 'setShowAgingGlow': {
+      state.showAgingGlow = !!message.value;
       renderFrame(true);
       return;
     }
@@ -370,6 +379,14 @@ self.onmessage = (event) => {
     case 'reset': {
       if (!state.world) return;
       resetWorld(state.world);
+      state.accumulator = 0;
+      postSnapshot(true);
+      renderFrame(true);
+      return;
+    }
+    case 'loadPreset': {
+      if (!state.world) return;
+      loadPreset(state.world, message.presetName);
       state.accumulator = 0;
       postSnapshot(true);
       renderFrame(true);

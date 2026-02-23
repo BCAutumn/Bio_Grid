@@ -1,116 +1,8 @@
-import { DEFAULT_CONFIG } from './config.js';
+import { CellType, MAX_NEIGHBOR_COUNT, RNG_MAX_OPEN } from './shared.js';
 
-export const CellType = Object.freeze({ EMPTY: 0, PLANT: 1, HERBIVORE: 2, WALL: 3 });
-const NEIGHBORS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-const MAX_NEIGHBOR_COUNT = NEIGHBORS.length;
 const SCRATCH_EMPTY_NEIGHBORS = new Int32Array(8);
 const SCRATCH_DIFFUSE_NEIGHBORS = new Int32Array(8);
-const clamp01 = (v) => Math.min(1, Math.max(0, v));
-const RNG_MAX_OPEN = 0.9999999999999999;
-const createGrid = (size) => ({
-  biomass: new Float32Array(size),
-  energy: new Float32Array(size),
-  gene: new Float32Array(size),
-  type: new Uint8Array(size)
-});
-const buildNeighborCache = (width, height) => {
-  const size = width * height;
-  const indices = new Int32Array(size * MAX_NEIGHBOR_COUNT);
-  const counts = new Uint8Array(size);
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    const i = y * width + x;
-    const base = i * MAX_NEIGHBOR_COUNT;
-    let count = 0;
-    for (const [dx, dy] of NEIGHBORS) {
-      const nx = x + dx;
-      const ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-      indices[base + count] = ny * width + nx;
-      count++;
-    }
-    counts[i] = count;
-  }
-  return { indices, counts };
-};
-export function createWorld(width = 160, height = 160, config = {}) {
-  const size = width * height;
-  return {
-    width,
-    height,
-    size,
-    time: 0,
-    sunlight: 0,
-    config: { ...DEFAULT_CONFIG, ...config },
-    extensions: { typeUpdaters: {} },
-    neighbors: buildNeighborCache(width, height),
-    wallCount: 0,
-    scratch: {
-      reproEligible: new Uint8Array(size)
-    },
-    front: createGrid(size),
-    back: createGrid(size),
-    stats: { tick: 0, totalBiomass: 0, avgGene: 0, plantCount: 0, sunlight: 0 }
-  };
-}
-export const toIndex = (world, x, y) => y * world.width + x;
-const writeCell = (grid, i, patch) => {
-  if (patch.type !== undefined) grid.type[i] = patch.type;
-  if (patch.biomass !== undefined) grid.biomass[i] = clamp01(patch.biomass);
-  if (patch.energy !== undefined) grid.energy[i] = patch.energy;
-  if (patch.gene !== undefined) grid.gene[i] = clamp01(patch.gene);
-};
-const writeBoth = (world, i, patch) => {
-  if (patch.type !== undefined) {
-    const prevType = world.front.type[i];
-    const nextType = patch.type;
-    if (prevType !== nextType) {
-      if (prevType === CellType.WALL) world.wallCount--;
-      if (nextType === CellType.WALL) world.wallCount++;
-    }
-  }
-  writeCell(world.front, i, patch);
-  writeCell(world.back, i, patch);
-};
-export function setCell(world, x, y, patch) {
-  if (x < 0 || y < 0 || x >= world.width || y >= world.height) return;
-  writeBoth(world, toIndex(world, x, y), patch);
-}
-export function applyBrush(world, cx, cy, radius, mode, options = {}) {
-  const r2 = radius * radius;
-  const sx = Math.max(0, Math.floor(cx - radius));
-  const ex = Math.min(world.width - 1, Math.ceil(cx + radius));
-  const sy = Math.max(0, Math.floor(cy - radius));
-  const ey = Math.min(world.height - 1, Math.ceil(cy + radius));
-  for (let y = sy; y <= ey; y++) for (let x = sx; x <= ex; x++) {
-    const dx = x - cx;
-    const dy = y - cy;
-    if (dx * dx + dy * dy > r2) continue;
-    const i = toIndex(world, x, y);
-    if (mode === 'life') writeBoth(world, i, { type: CellType.PLANT, biomass: 1, energy: options.energy ?? 24, gene: options.gene ?? 0.5 });
-    else if (mode === 'disturb') writeBoth(world, i, { energy: 0 });
-    else if (mode === 'annihilate') writeBoth(world, i, { type: CellType.EMPTY, biomass: 0, energy: 0, gene: 0 });
-    else if (mode === 'wall') writeBoth(world, i, { type: CellType.WALL, biomass: 0, energy: 0, gene: 0 });
-  }
-}
-export function randomSeed(world, count = 140, rng = Math.random) {
-  for (let i = 0; i < count; i++) {
-    const x = Math.floor(rng() * world.width);
-    const y = Math.floor(rng() * world.height);
-    setCell(world, x, y, { type: CellType.PLANT, biomass: 1, energy: 10 + rng() * 14, gene: rng() });
-  }
-}
-export function resetWorld(world) {
-  for (const grid of [world.front, world.back]) {
-    grid.type.fill(0);
-    grid.biomass.fill(0);
-    grid.energy.fill(0);
-    grid.gene.fill(0);
-  }
-  world.time = 0;
-  world.sunlight = 0;
-  world.wallCount = 0;
-  world.stats = { tick: 0, totalBiomass: 0, avgGene: 0, plantCount: 0, sunlight: 0 };
-}
+
 export function tick(world, rng = Math.random) {
   const { config, front: a, back: b } = world;
   const size = world.size;
@@ -136,6 +28,7 @@ export function tick(world, rng = Math.random) {
   const rawSunlight = Math.sin(world.time * config.sunSpeed);
   const sunlight = rawSunlight > 0 ? rawSunlight : 0;
   world.sunlight = sunlight;
+  const dayStep = (config.timeStep * config.sunSpeed) / (Math.PI * 2);
   const diffuseSelf = config.diffuseSelf;
   const diffuseNeighbor = config.diffuseNeighbor;
   const diffuseGradientThreshold = config.diffuseGradientThreshold ?? 0;
@@ -145,6 +38,7 @@ export function tick(world, rng = Math.random) {
   const outFrac = norm > 0 ? diffuseNeighbor / norm : 0;
   const baseCost = config.baseCost;
   const geneCostFactor = config.geneCostFactor;
+  const growthEnergyThreshold = config.growthEnergyThreshold ?? 0;
   const growthRate = config.growthRate;
   const decayRate = config.decayRate;
   const isolationEnergyLoss = config.isolationEnergyLoss;
@@ -154,16 +48,31 @@ export function tick(world, rng = Math.random) {
   const crowdNeighborSoft = config.crowdNeighborSoft;
   const crowdEnergyLoss = config.crowdEnergyLoss;
   const reproNeighborCap = config.reproNeighborCap;
-  const reproBiomass = config.reproBiomass;
-  const reproEnergy = config.reproEnergy;
+  const reproBiomassRatio = config.reproBiomassRatio ?? 0.5;
+  const reproEnergyRatio = config.reproEnergyRatio ?? 0.2;
   const childBiomass = config.childBiomass;
   const mutationStep = config.mutationStep;
-  const maxEnergy = config.maxEnergy;
+  const mutationDistanceFactor = config.mutationDistanceFactor ?? 0.1;
+  const energyMaxBase = config.energyMaxBase ?? 72;
+  const energyMaxGeneRange = config.energyMaxGeneRange ?? 36;
+  const biomassMaxBase = config.biomassMaxBase ?? 1.8;
+  const biomassMaxGeneRange = config.biomassMaxGeneRange ?? 0.8;
+  const ageMaxBase = config.ageMaxBase ?? 3;
+  const ageMaxGeneRange = config.ageMaxGeneRange ?? 1.5;
+  const senescenceStartFrac = config.senescenceStartFrac ?? 0.7;
+  const senescenceCostExtraMultiplier = config.senescenceCostExtraMultiplier ?? 3;
+  const photoIncomeBase = config.photoIncomeBase ?? 0.04;
+  const photoIncomeGeneFactor = config.photoIncomeGeneFactor ?? 0.0056;
+  const isolationNeighborMin = config.isolationNeighborMin ?? 2;
+  const reproEnergyShareFrac = config.reproEnergyShareFrac ?? 0.25;
 
+  const aAge = a.age;
+  const bAge = b.age;
   bType.set(aType);
   bBiomass.fill(0);
   bGene.fill(0);
   bEnergy.fill(0);
+  bAge.set(aAge);
   for (let i = 0; i < size; i++) {
     if (hasWalls && aType[i] === wallType) {
       continue;
@@ -209,7 +118,23 @@ export function tick(world, rng = Math.random) {
     }
   }
   for (let i = 0; i < size; i++) {
-    reproEligible[i] = aType[i] === plantType && aBiomass[i] > reproBiomass && aEnergy[i] > reproEnergy ? 1 : 0;
+    if (aType[i] !== plantType) {
+      reproEligible[i] = 0;
+      continue;
+    }
+    const g = aGene[i];
+    const geneVal = g < 0 ? 0 : g > 1 ? 1 : g;
+    const cellMaxEnergy = energyMaxBase - geneVal * energyMaxGeneRange;
+    const cellMaxBiomass = biomassMaxBase - geneVal * biomassMaxGeneRange;
+    
+    if (aBiomass[i] <= cellMaxBiomass * reproBiomassRatio || aEnergy[i] <= cellMaxEnergy * reproEnergyRatio) {
+      reproEligible[i] = 0;
+      continue;
+    }
+
+    const maxAge = ageMaxBase + (1 - geneVal) * ageMaxGeneRange;
+    const ageNow = aAge[i] || 0;
+    reproEligible[i] = ageNow <= maxAge * senescenceStartFrac ? 1 : 0;
   }
   for (let i = 0; i < size; i++) {
     if (aType[i] !== plantType) {
@@ -229,12 +154,27 @@ export function tick(world, rng = Math.random) {
       bType[i] = emptyType;
       bEnergy[i] = 0;
       bGene[i] = 0;
+      bAge[i] = 0;
       continue;
     }
     const rawGene = aGene[i];
     const gene = rawGene < 0 ? 0 : rawGene > 1 ? 1 : rawGene;
-    const income = sunlight * (0.02 + gene * 0.064);
-    const cost = baseCost + gene * gene * geneCostFactor;
+    const age = (aAge[i] || 0) + dayStep;
+    const cellMaxAge = ageMaxBase + (1 - gene) * ageMaxGeneRange;
+    if (age >= cellMaxAge) {
+      bType[i] = emptyType;
+      bEnergy[i] = 0;
+      bBiomass[i] = 0;
+      bGene[i] = 0;
+      bAge[i] = 0;
+      continue;
+    }
+    const income = sunlight * (photoIncomeBase + gene * photoIncomeGeneFactor);
+    const cost0 = baseCost + gene * gene * geneCostFactor;
+    // 由于 age >= cellMaxAge 会先老死 return，这里的衰老项天然落在 [0, 1) 区间，不需要额外 clamp/min。
+    const senescenceDenom = cellMaxAge * (1 - senescenceStartFrac);
+    const senescenceT = senescenceDenom > 0 ? Math.max(0, (age - cellMaxAge * senescenceStartFrac) / senescenceDenom) : 0;
+    const cost = cost0 + cost0 * senescenceCostExtraMultiplier * senescenceT;
     let energy = bEnergy[i] + income - cost;
     let plantNeighbors = 0;
     let emptyCount = 0;
@@ -246,7 +186,7 @@ export function tick(world, rng = Math.random) {
       if (readType === plantType && aBiomass[ni] > 0) plantNeighbors++;
       if (readType === emptyType && bType[ni] === emptyType) emptyNeighbors[emptyCount++] = ni;
     }
-    if (plantNeighbors < 2) {
+    if (plantNeighbors < isolationNeighborMin) {
       const neighborFactor = plantNeighbors === 0 ? isolationZeroNeighborMultiplier : 1;
       // 更直观的线性形式：低 gene 更耐孤独，高 gene 更吃亏。
       const geneFactor = isolationGeneBase + gene * isolationGeneFactor;
@@ -254,22 +194,27 @@ export function tick(world, rng = Math.random) {
     } else if (plantNeighbors > crowdNeighborSoft) {
       const localCrowd = plantNeighbors - crowdNeighborSoft;
       // 采用非线性拥挤系数（与规则文档示例一致）。
-      const crowdFactor = [0, 1, 2, 6, 15][localCrowd] ?? ((2 ** localCrowd) - 1);
+      const crowdFactor = [0, 1, 2, 10, 37][localCrowd] ?? ((2 ** localCrowd) - 1);
       energy -= crowdFactor * crowdEnergyLoss;
     }
     bGene[i] = gene;
-    const cappedEnergy = energy < maxEnergy ? energy : maxEnergy;
+    bAge[i] = age;
+    const cellMaxEnergy = energyMaxBase - gene * energyMaxGeneRange;
+    const cellMaxBiomass = biomassMaxBase - gene * biomassMaxGeneRange;
+    const cappedEnergy = energy < cellMaxEnergy ? energy : cellMaxEnergy;
     bEnergy[i] = cappedEnergy;
-    const nextBiomassRaw = aBiomass[i] + (cappedEnergy > 0 ? growthRate : -decayRate);
-    const nextBiomass = nextBiomassRaw < 0 ? 0 : nextBiomassRaw > 1 ? 1 : nextBiomassRaw;
+    const biomassDelta = cappedEnergy > growthEnergyThreshold ? growthRate : (cappedEnergy <= 0 ? -decayRate : 0);
+    const nextBiomassRaw = aBiomass[i] + biomassDelta;
+    const nextBiomass = nextBiomassRaw < 0 ? 0 : nextBiomassRaw > cellMaxBiomass ? cellMaxBiomass : nextBiomassRaw;
     bBiomass[i] = nextBiomass;
     if (nextBiomass <= 0) {
       bType[i] = emptyType;
       bEnergy[i] = 0;
       bGene[i] = 0;
+      bAge[i] = 0;
       continue;
     }
-    if (emptyCount > 0 && plantNeighbors >= 1 && plantNeighbors <= reproNeighborCap && nextBiomass > reproBiomass && cappedEnergy > reproEnergy) {
+    if (emptyCount > 0 && plantNeighbors >= 1 && plantNeighbors <= reproNeighborCap && nextBiomass > cellMaxBiomass * reproBiomassRatio && cappedEnergy > cellMaxEnergy * reproEnergyRatio) {
       let chosenEmpty = -1;
       let chosenCoParent = -1;
       let validEmptyCount = 0;
@@ -298,21 +243,24 @@ export function tick(world, rng = Math.random) {
       }
 
       if (chosenEmpty >= 0) {
-        const parent1Share = cappedEnergy * 0.25;
+        const parent1Share = cappedEnergy * reproEnergyShareFrac;
         const rawParent2Energy = bEnergy[chosenCoParent];
         const parent2Energy = rawParent2Energy > 0 ? rawParent2Energy : 0;
-        const parent2Share = parent2Energy * 0.25;
+        const parent2Share = parent2Energy * reproEnergyShareFrac;
 
         bType[chosenEmpty] = plantType;
         bBiomass[chosenEmpty] = childBiomass;
         bEnergy[chosenEmpty] = parent1Share + parent2Share;
+        bAge[chosenEmpty] = 0;
 
         const rawCoParentGene = aGene[chosenCoParent];
         const coParentGene = rawCoParentGene < 0 ? 0 : rawCoParentGene > 1 ? 1 : rawCoParentGene;
         const parentPickRoll = rng();
         const parentGene = parentPickRoll < 0.5 ? gene : coParentGene;
+        const geneDiff = gene > coParentGene ? gene - coParentGene : coParentGene - gene;
+        const actualMutationStep = mutationStep + geneDiff * mutationDistanceFactor;
         const mutationRoll = rng();
-        const childGeneRaw = parentGene + (mutationRoll * 2 - 1) * mutationStep;
+        const childGeneRaw = parentGene + (mutationRoll * 2 - 1) * actualMutationStep;
         bGene[chosenEmpty] = childGeneRaw < 0 ? 0 : childGeneRaw > 1 ? 1 : childGeneRaw;
 
         bEnergy[i] = cappedEnergy - parent1Share;
@@ -343,3 +291,5 @@ export function computeStats(world) {
   world.stats.sunlight = world.sunlight;
   return world.stats;
 }
+
+

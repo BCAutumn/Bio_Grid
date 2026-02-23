@@ -1,4 +1,4 @@
-import { createWorld } from './sim-core.js';
+import { createWorld } from './sim/index.js';
 import { drawCellValuesOverlay, drawChart, paintWorldToPixels, updateSkyBadge } from './render.js';
 import { bindInteractions } from './main-interactions.js';
 import { createSharedChannels } from './main-shared-channels.js';
@@ -6,7 +6,7 @@ import { createSharedChannels } from './main-shared-channels.js';
 const GRID_W = 240;
 const GRID_H = 240;
 const HISTORY_MAX = 300;
-const BASE_HINT = '左键：生命之笔；右键：扰动（Shift + 右键重度毁灭）；中键：墙体；滚轮缩放；空格+拖动平移';
+const BASE_HINT = '当前模式：播种。左键拖动绘制；滚轮缩放；中键拖动平移。';
 const CELL_VALUES_MIN_ZOOM = 8;
 const PANEL_MIN_INTERVAL_MS = 80;
 const CHART_MIN_INTERVAL_MS = 96;
@@ -41,6 +41,7 @@ const btnReset = document.getElementById('btnReset');
 const btnSeed = document.getElementById('btnSeed');
 const btnViewReset = document.getElementById('btnViewReset');
 const btnCellValues = document.getElementById('btnCellValues');
+const btnAgingGlow = document.getElementById('btnAgingGlow');
 
 const speedInput = document.getElementById('speedRange');
 const speedValue = document.getElementById('speedValue');
@@ -52,6 +53,23 @@ const sunSpeedInput = document.getElementById('sunSpeedRange');
 const sunSpeedValue = document.getElementById('sunSpeedValue');
 const zoomInput = document.getElementById('zoomRange');
 const zoomValue = document.getElementById('zoomValue');
+
+const btnModeLife = document.getElementById('btnModeLife');
+const btnModeDisturb = document.getElementById('btnModeDisturb');
+const btnModeAnnihilate = document.getElementById('btnModeAnnihilate');
+const btnModeWall = document.getElementById('btnModeWall');
+
+const btnShapeCircle = document.getElementById('btnShapeCircle');
+const btnShapeSquare = document.getElementById('btnShapeSquare');
+const btnShapeRect = document.getElementById('btnShapeRect');
+const btnShapeTriangle = document.getElementById('btnShapeTriangle');
+
+const btnPresetEmpty = document.getElementById('btnPresetEmpty');
+const btnPresetFourRooms = document.getElementById('btnPresetFourRooms');
+const btnPresetMaze = document.getElementById('btnPresetMaze');
+const btnPresetBorder = document.getElementById('btnPresetBorder');
+const btnPresetHourglass = document.getElementById('btnPresetHourglass');
+const btnPresetRings = document.getElementById('btnPresetRings');
 
 const panel = {
   time: document.getElementById('statTime'),
@@ -85,6 +103,8 @@ const state = {
   workerSharedMode: false,
   workerRenderMode: false,
   showCellValues: false,
+  showAgingGlow: false,
+  brushMode: 'life',
   pointerMode: 'none',
   spaceDown: false,
   panStart: null
@@ -119,6 +139,7 @@ function applySnapshot(snapshot) {
   world.front.energy = new Float32Array(snapshot.energy);
   world.front.gene = new Float32Array(snapshot.gene);
   world.front.type = new Uint8Array(snapshot.cellType);
+  if (snapshot.age) world.front.age = new Float32Array(snapshot.age);
   applySnapshotMeta(snapshot);
 }
 
@@ -200,7 +221,8 @@ function syncViewToWorker() {
     sw: view.sw,
     sh: view.sh,
     zoom: camera.zoom,
-    showCellValues: state.showCellValues
+    showCellValues: state.showCellValues,
+    showAgingGlow: state.showAgingGlow
   });
 }
 
@@ -214,6 +236,10 @@ function syncReadouts() {
   const zoomReady = camera.zoom >= CELL_VALUES_MIN_ZOOM;
   btnCellValues.textContent = enabled ? (zoomReady ? '格子数值：开' : `格子数值：开（需≥${CELL_VALUES_MIN_ZOOM}x）`) : '格子数值：关';
   btnCellValues.classList.toggle('is-active', enabled);
+  if (btnAgingGlow) {
+    btnAgingGlow.textContent = state.showAgingGlow ? '衰老预警：开' : '衰老预警：关';
+    btnAgingGlow.classList.toggle('is-active', state.showAgingGlow);
+  }
 }
 
 function setZoom(nextZoom) {
@@ -271,7 +297,7 @@ function drawChartIfNeeded(now) {
 
 function paintFrame(now) {
   if (!simCtx || !bufferCtx || !bufferCanvas || !frame) return;
-  paintWorldToPixels(world, frame.data);
+  paintWorldToPixels(world, frame.data, { showAgingGlow: state.showAgingGlow });
   bufferCtx.putImageData(frame, 0, 0);
   const view = currentView();
   simCtx.imageSmoothingEnabled = false;
@@ -285,7 +311,8 @@ function paintFrame(now) {
 
 function refreshPanel() {
   const stats = world.stats;
-  panel.time.textContent = world.time.toFixed(1);
+  const day = (world.time * world.config.sunSpeed) / (Math.PI * 2);
+  panel.time.textContent = day.toFixed(2);
   panel.sunlight.textContent = stats.sunlight.toFixed(2);
   panel.biomass.textContent = (stats.totalBiomass / world.size).toFixed(3);
   panel.plants.textContent = `${stats.plantCount}`;
@@ -322,7 +349,12 @@ bindInteractions({
   state,
   camera,
   world,
-  buttons: { btnPause, btnReset, btnSeed, btnViewReset, btnCellValues },
+  buttons: {
+    btnPause, btnReset, btnSeed, btnViewReset, btnCellValues, btnAgingGlow,
+    btnModeLife, btnModeDisturb, btnModeAnnihilate, btnModeWall,
+    btnPresetEmpty, btnPresetFourRooms, btnPresetMaze,
+    btnPresetBorder, btnPresetHourglass, btnPresetRings
+  },
   inputs: { speedInput, radiusInput, geneInput, sunSpeedInput, zoomInput },
   sendToWorker,
   setZoom,

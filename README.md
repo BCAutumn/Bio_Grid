@@ -20,15 +20,16 @@ npm test
 
 - 双缓冲主循环（读 `front`，写 `back`）。
 - 昼夜光照：`Sunlight = max(0, sin(Time * Speed))`。
-- 能量扩散：`E_new = E_old * 0.95 + neighborsAvg * 0.05`。
+- 能量扩散：梯度驱动扩散（8% 外流上限 + 启动阈值/平滑放量，墙体不参与），详见 `docs/RULES.md`。
 - 植物代谢：光合作用收入 + 基础代谢支出。
 - 生长/凋亡：能量正负决定生物量增减。
 - 密度惩罚：局部过密增加能量消耗，或者缺乏邻居（小于2个）时触发“孤独”能量流失。
 - 繁殖 + 基因突变：成熟且高能量，且周围有同样符合条件的“伴侣”时，共同消耗能量向空地扩散。
 - 墙体：不参与扩散并阻断邻居扩散计算。
-- God Mode 三键交互：生命之笔、扰动/毁灭、墙体。
+- 交互面板与笔刷模式：提供生命之笔、扰动、毁灭、墙体多种笔刷模式，支持左键拖动绘制。
 - 可缩放观察：滚轮缩放 + 空格拖动画布平移。
 - 速度范围扩展：`0.2 ~ 480 tick/s`，可做超慢速微观观察。
+- 昼夜速度范围扩展：`0.004 ~ 0.12`（更高上限便于做强昼夜压力实验）。
 - Worker + SharedArrayBuffer 快照通道：模拟与渲染线程分离，减少高速下主线程卡顿。
 - OffscreenCanvas Worker 渲染：在支持环境下把主画布像素着色迁移到 Worker，进一步降低主线程负载。
 - 实时数据面板：总生物量与平均基因曲线。
@@ -41,11 +42,17 @@ Bio_Grid/
   package.json
   scripts/dev-server.mjs
   src/
+    sim/
+      brush.js
+      index.js
+      presets.js
+      shared.js
+      world.js
+      tick.js
     main.js
     main-interactions.js
     main-shared-channels.js
     render.js
-    sim-core.js
     sim-worker.js
     styles.css
     config.js
@@ -59,14 +66,16 @@ Bio_Grid/
 
 ### 1. 核心规则最小化
 
-- `src/sim-core.js` 为唯一核心模拟模块。
-- 核心逻辑保持单模块维护，优先保证规则清晰、可测试、可优化。
+- 核心模拟拆分在 `src/sim/`（`tick.js/world.js/brush.js/presets.js`），对外统一从 `src/sim/index.js` 导出。
+- 核心逻辑优先保证规则清晰、可测试、可优化。
 - 新增玩法优先通过 `extensions.typeUpdaters` 或配置扩展，不直接破坏主循环。
+- 目标是用最少的参数和变量实现尽可能多的规则，不要添加看起来有用实际上影响不大的参数和变量。
+- 基因相关公式优先使用简单易懂的加法或减法。
 
 ### 2. 高内聚低耦合
 
 - 模拟与渲染解耦：
-  - `sim-core.js` 只负责状态更新。
+  - `src/sim/` 只负责状态更新。
   - `render.js` 只负责可视化映射。
   - `main.js` 只做输入编排与循环调度。
 - 禁止在核心模拟层访问 DOM。
@@ -115,10 +124,8 @@ Bio_Grid/
 
 ## 交互速览
 
-- 左键：生成细胞（`Biomass=1`, `Energy=24`，基因由滑条给定）。
-- 右键：轻度扰动（区域能量清零）。
-- Shift + 右键：重度毁灭（区域清空）。
-- 中键：绘制墙体。
+- 左键拖动：根据当前选择的笔刷模式在画布上绘制（播种、干扰、毁灭、墙体）。
+- 预设地图：提供空地、四宫格、迷宫等快捷地形。
 - 滚轮：缩放。
 - 空格 + 拖动：平移视角。
 

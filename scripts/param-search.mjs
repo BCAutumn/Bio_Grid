@@ -1,4 +1,4 @@
-import { CellType, createWorld, randomSeed, resetWorld, setCell, tick } from '../src/sim-core.js';
+import { CellType, createWorld, randomSeed, resetWorld, setCell, tick } from '../src/sim/index.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
 const parseArgs = (argv) => {

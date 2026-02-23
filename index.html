@@ -27,6 +27,29 @@
           <div class="row row-tight">
             <button id="btnViewReset">重置视角</button>
             <button id="btnCellValues">格子数值：关</button>
+            <button id="btnAgingGlow">衰老预警：关</button>
+          </div>
+
+          <label class="label-line" style="margin-top: 4px;">笔刷模式</label>
+          <div class="row brush-modes">
+            <button id="btnModeLife" class="is-active">🌱 播种</button>
+            <button id="btnModeDisturb">🌪️ 干扰</button>
+            <button id="btnModeAnnihilate">🔥 毁灭</button>
+            <button id="btnModeWall">🧱 墙体</button>
+          </div>
+
+          <label class="label-line" style="margin-top: 4px;">预设地图</label>
+          <div class="row preset-modes">
+            <button id="btnPresetEmpty">空地</button>
+            <button id="btnPresetFourRooms">四宫格</button>
+            <button id="btnPresetMaze">迷宫</button>
+          </div>
+
+          <label class="label-line" style="margin-top: 4px;">墙体图形</label>
+          <div class="row wall-glyphs">
+            <button id="btnPresetBorder">边框</button>
+            <button id="btnPresetHourglass">沙漏</button>
+            <button id="btnPresetRings">同心环</button>
           </div>
 
           <label>
@@ -46,7 +69,7 @@
 
           <label>
             <span class="label-line"><span>昼夜速度</span><span class="value" id="sunSpeedValue">0.03</span></span>
-            <input id="sunSpeedRange" type="range" min="0.004" max="0.05" step="0.001" value="0.03" />
+            <input id="sunSpeedRange" type="range" min="0.004" max="0.12" step="0.001" value="0.03" />
           </label>
 
           <label>
@@ -58,14 +81,14 @@
         <div class="orbit"><div id="skyBadge">☀</div></div>
 
         <div class="stats">
-          <div class="card"><span class="k">Time</span><span class="v" id="statTime">0</span></div>
+          <div class="card"><span class="k">Day</span><span class="v" id="statTime">0</span></div>
           <div class="card"><span class="k">Sunlight</span><span class="v" id="statSunlight">0</span></div>
           <div class="card"><span class="k">Biomass Ratio</span><span class="v" id="statBiomass">0</span></div>
           <div class="card"><span class="k">Plant Cells</span><span class="v" id="statPlants">0</span></div>
           <div class="card"><span class="k">Avg Gene</span><span class="v" id="statGene">0</span></div>
         </div>
 
-        <p id="toolHint">左键：生命之笔；右键：扰动（Shift + 右键重度毁灭）；中键：墙体；滚轮缩放；空格+拖动平移</p>
+        <p id="toolHint">当前模式：播种。左键在画布上拖动即可绘制；滚轮缩放；空格+拖动平移。</p>
         <canvas id="chartCanvas" width="360" height="156"></canvas>
         <p class="legend"><strong>Biomass</strong> 与 <strong>Avg Gene</strong> 随时间变化。观察昼夜筛选后，群体是否偏向激进（红）或保守（蓝）。</p>
       </aside>
