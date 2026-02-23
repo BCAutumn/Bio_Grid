@@ -5,7 +5,7 @@ import { createSharedChannels } from './main-shared-channels.js';
 
 const GRID_W = 240;
 const GRID_H = 240;
-const HISTORY_MAX = 300;
+const HISTORY_MAX = 600; // Increased history to hold more data points on the enlarged chart
 const BASE_HINT = '当前模式：播种。左键拖动绘制；滚轮缩放；中键拖动平移。';
 const CELL_VALUES_MIN_ZOOM = 8;
 const PANEL_MIN_INTERVAL_MS = 80;
@@ -33,7 +33,7 @@ let simTargetHeight = 940;
 const sharedChannels = supportsSharedSnapshots && !simOffscreen ? createSharedChannels(world.size) : null;
 const chartCanvas = document.getElementById('chartCanvas');
 const chartCtx = chartCanvas.getContext('2d', { alpha: true });
-const skyBadge = document.getElementById('skyBadge');
+const skyOrbit = document.getElementById('skyOrbit');
 const orbit = document.querySelector('.orbit');
 
 const btnPause = document.getElementById('btnPause');
@@ -105,9 +105,15 @@ const state = {
   showCellValues: false,
   showAgingGlow: false,
   brushMode: 'life',
+  brushShape: 'circle',
   pointerMode: 'none',
   spaceDown: false,
   panStart: null
+};
+
+const skySync = {
+  time: 0,
+  ts: performance.now()
 };
 
 const camera = {
@@ -132,6 +138,10 @@ function applySnapshotMeta(snapshotMeta) {
   world.stats.plantCount = snapshotMeta.stats.plantCount;
   world.stats.sunlight = snapshotMeta.sunlight;
   pushHistory(world.stats);
+
+  // Sync smooth sky animation baseline to worker snapshots.
+  skySync.time = world.time;
+  skySync.ts = performance.now();
 }
 
 function applySnapshot(snapshot) {
@@ -268,15 +278,15 @@ function zoomAt(clientX, clientY, factor) {
 
 function resizeCanvases() {
   const area = document.querySelector('.sim-shell').getBoundingClientRect();
-  const side = Math.max(360, Math.min(area.width - 12, window.innerHeight * 0.8));
+  const side = Math.max(360, Math.min(area.width - 32, window.innerHeight * 0.85));
   simTargetWidth = Math.floor(side);
   simTargetHeight = Math.floor(side);
   if (simCtx) {
     simCanvas.width = simTargetWidth;
     simCanvas.height = simTargetHeight;
   }
-  chartCanvas.width = Math.floor(side);
-  chartCanvas.height = 156;
+  chartCanvas.width = 370;
+  chartCanvas.height = 240;
   sendToWorker({ type: 'setCanvasSize', width: simTargetWidth, height: simTargetHeight });
   syncViewToWorker();
 }
@@ -317,7 +327,6 @@ function refreshPanel() {
   panel.biomass.textContent = (stats.totalBiomass / world.size).toFixed(3);
   panel.plants.textContent = `${stats.plantCount}`;
   panel.gene.textContent = stats.avgGene.toFixed(3);
-  updateSkyBadge(world, skyBadge);
 }
 
 function frameLoop(now) {
@@ -330,6 +339,18 @@ function frameLoop(now) {
     applySnapshot(pendingSnapshot);
     pendingSnapshot = null;
   }
+  // Smooth sky animation: interpolate between worker snapshotMeta updates.
+  let skyTime = skySync.time;
+  if (state.running) {
+    const dtSec = Math.max(0, (now - skySync.ts) / 1000);
+    skyTime += dtSec * state.ticksPerSecond * world.config.timeStep;
+  } else {
+    // Prevent "jump" after pausing by keeping baseline fresh.
+    skySync.time = world.time;
+    skySync.ts = now;
+    skyTime = world.time;
+  }
+  updateSkyBadge(world, skyOrbit, skyTime);
   if (now - state.lastRenderTs >= RENDER_INTERVAL_MS) {
     if (state.workerRenderMode) drawChartIfNeeded(now);
     else paintFrame(now);
@@ -352,6 +373,7 @@ bindInteractions({
   buttons: {
     btnPause, btnReset, btnSeed, btnViewReset, btnCellValues, btnAgingGlow,
     btnModeLife, btnModeDisturb, btnModeAnnihilate, btnModeWall,
+    btnShapeCircle, btnShapeSquare, btnShapeRect, btnShapeTriangle,
     btnPresetEmpty, btnPresetFourRooms, btnPresetMaze,
     btnPresetBorder, btnPresetHourglass, btnPresetRings
   },
@@ -373,12 +395,52 @@ bindInteractions({
   onResize: resizeCanvases
 });
 
+const tabControls = document.getElementById('tabControls');
+const tabStats = document.getElementById('tabStats');
+const contentControls = document.getElementById('contentControls');
+const contentStats = document.getElementById('contentStats');
+
+const panelStats = document.querySelector('.panel-stats');
+
+function updateTabs() {
+  if (window.innerWidth <= 1600) {
+    if (tabControls.classList.contains('is-active')) {
+      contentControls.classList.add('is-active');
+      panelStats.classList.remove('is-active');
+    } else {
+      contentControls.classList.remove('is-active');
+      panelStats.classList.add('is-active');
+    }
+  } else {
+    // In wide mode, both panels are controlled by media queries for layout
+    contentControls.classList.add('is-active');
+    panelStats.classList.remove('is-active');
+  }
+}
+
+tabControls.addEventListener('click', () => {
+  tabControls.classList.add('is-active');
+  tabStats.classList.remove('is-active');
+  updateTabs();
+});
+
+tabStats.addEventListener('click', () => {
+  tabStats.classList.add('is-active');
+  tabControls.classList.remove('is-active');
+  updateTabs();
+  // force chart redraw if possible
+  drawChartIfNeeded(performance.now() + CHART_MIN_INTERVAL_MS + 1);
+});
+
+// Update tabs on resize to handle layout transitions
+window.addEventListener('resize', updateTabs);
+
 resizeCanvases();
+updateTabs();
 applyCameraBounds();
 panel.hint.textContent = '连接模拟线程中...';
 world.config.sunSpeed = Number(sunSpeedInput.value);
 syncReadouts();
-updateSkyBadge(world, skyBadge);
 orbit.classList.add('ready');
 
 const initMessage = {

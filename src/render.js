@@ -78,24 +78,40 @@ export function paintWorldToPixels(world, pixels, options = {}) {
   }
 }
 
-export function updateSkyBadge(world, badgeEl) {
-  const cycle = (world.time * world.config.sunSpeed) % (Math.PI * 2);
-  const t = cycle / (Math.PI * 2);
-  const x = t * 100;
-  const y = 50 - Math.sin(cycle) * 42;
-  badgeEl.style.left = `${x}%`;
-  badgeEl.style.top = `${y}%`;
-  badgeEl.textContent = world.sunlight > 0 ? '☀' : '☾';
+export function updateSkyBadge(world, orbitEl, timeOverride = null) {
+  if (!orbitEl) return;
+  const time = timeOverride == null ? world.time : timeOverride;
+  const cycle = (time * world.config.sunSpeed) % (Math.PI * 2);
+  const sun = Math.max(0, Math.sin(cycle));
+  orbitEl.style.setProperty('--sun', sun.toFixed(4));
+
+  if (cycle < Math.PI) {
+    const t = cycle / Math.PI;
+    const x = t * 100;
+    const y = 95 - Math.sin(cycle) * 70;
+    orbitEl.style.setProperty('--sun-x', x.toFixed(2));
+    orbitEl.style.setProperty('--sun-y', y.toFixed(2));
+    orbitEl.style.setProperty('--sun-a', '1');
+    orbitEl.style.setProperty('--moon-a', '0');
+  } else {
+    const t = (cycle - Math.PI) / Math.PI;
+    const x = t * 100;
+    const y = 95 - Math.sin(cycle - Math.PI) * 70;
+    orbitEl.style.setProperty('--moon-x', x.toFixed(2));
+    orbitEl.style.setProperty('--moon-y', y.toFixed(2));
+    orbitEl.style.setProperty('--moon-a', '1');
+    orbitEl.style.setProperty('--sun-a', '0');
+  }
 }
 
 export function drawChart(ctx, w, h, biomassHistory, geneHistory) {
   ctx.clearRect(0, 0, w, h);
   const bg = ctx.createLinearGradient(0, 0, w, h);
-  bg.addColorStop(0, 'rgba(12, 19, 31, 0.95)');
-  bg.addColorStop(1, 'rgba(20, 28, 36, 0.95)');
+  bg.addColorStop(0, 'rgba(10, 10, 10, 0.95)');
+  bg.addColorStop(1, 'rgba(18, 18, 18, 0.95)');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = 'rgba(240, 246, 255, 0.15)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
   ctx.beginPath();
   ctx.moveTo(28, h - 18);
   ctx.lineTo(w - 8, h - 18);
@@ -118,13 +134,13 @@ export function drawChart(ctx, w, h, biomassHistory, geneHistory) {
     ctx.stroke();
   };
 
-  drawSeries(biomassHistory, '#ff915d', 0, 1);
-  drawSeries(geneHistory, '#5ad3ff', 0, 1);
-  ctx.fillStyle = 'rgba(244, 248, 255, 0.85)';
-  ctx.font = '12px "Avenir Next", "Futura", "Trebuchet MS", sans-serif';
+  drawSeries(biomassHistory, '#f87171', 0, 1);
+  drawSeries(geneHistory, '#38bdf8', 0, 1);
+  ctx.fillStyle = 'rgba(243, 244, 246, 0.8)';
+  ctx.font = '10px system-ui, -apple-system, sans-serif';
   ctx.fillText('Biomass', 36, 18);
-  ctx.fillStyle = '#5ad3ff';
-  ctx.fillText('Avg Gene', 102, 18);
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillText('Avg Gene', 90, 18);
 }
 
 export function drawCellValuesOverlay(ctx, world, view, canvasW, canvasH) {
@@ -140,7 +156,7 @@ export function drawCellValuesOverlay(ctx, world, view, canvasW, canvasH) {
   const maxEnergy = world.config.maxEnergy || 1;
 
   ctx.save();
-  ctx.font = `${textSize}px "Avenir Next", "Futura", "Trebuchet MS", sans-serif`;
+  ctx.font = `${textSize}px system-ui, -apple-system, sans-serif`;
   ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
   ctx.shadowBlur = 2;
   for (let y = startY; y <= endY; y++) for (let x = startX; x <= endX; x++) {

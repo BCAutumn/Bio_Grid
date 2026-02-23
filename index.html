@@ -12,86 +12,117 @@
         <canvas id="simCanvas" width="940" height="940"></canvas>
       </section>
 
-      <aside class="panel">
-        <div>
-          <h1>Bio-Grid</h1>
-          <p class="subtitle">极简生态热力学模拟器</p>
-        </div>
-
-        <div class="controls">
-          <div class="row">
-            <button id="btnPause">暂停</button>
-            <button id="btnReset">清空</button>
-            <button id="btnSeed">随机播种</button>
-          </div>
-          <div class="row row-tight">
-            <button id="btnViewReset">重置视角</button>
-            <button id="btnCellValues">格子数值：关</button>
-            <button id="btnAgingGlow">衰老预警：关</button>
+      <div class="sidebar-container">
+        <!-- Panel 1: Controls -->
+        <aside class="panel panel-controls">
+          <div class="panel-header">
+            <h1>Bio-Grid</h1>
+            <p class="subtitle">极简生态热力学模拟器</p>
           </div>
 
-          <label class="label-line" style="margin-top: 4px;">笔刷模式</label>
-          <div class="row brush-modes">
-            <button id="btnModeLife" class="is-active">🌱 播种</button>
-            <button id="btnModeDisturb">🌪️ 干扰</button>
-            <button id="btnModeAnnihilate">🔥 毁灭</button>
-            <button id="btnModeWall">🧱 墙体</button>
+          <div class="panel-tabs">
+            <button id="tabControls" class="tab-btn is-active">控制台</button>
+            <button id="tabStats" class="tab-btn">数据与图表</button>
           </div>
 
-          <label class="label-line" style="margin-top: 4px;">预设地图</label>
-          <div class="row preset-modes">
-            <button id="btnPresetEmpty">空地</button>
-            <button id="btnPresetFourRooms">四宫格</button>
-            <button id="btnPresetMaze">迷宫</button>
+          <div id="contentControls" class="tab-content is-active">
+            <div class="controls">
+              <div class="row">
+                <button id="btnPause">暂停</button>
+                <button id="btnReset">清空</button>
+                <button id="btnSeed">随机播种</button>
+              </div>
+              <div class="row row-tight">
+                <button id="btnViewReset">重置视角</button>
+                <button id="btnCellValues">格子数值：关</button>
+                <button id="btnAgingGlow">衰老预警：关</button>
+              </div>
+
+              <div class="label-group">
+                <div class="label-line"><span class="label-title">笔刷模式</span></div>
+                <div class="row brush-modes">
+                  <button id="btnModeLife" class="is-active">播种</button>
+                  <button id="btnModeDisturb">干扰</button>
+                  <button id="btnModeAnnihilate">毁灭</button>
+                  <button id="btnModeWall">墙体</button>
+                </div>
+              </div>
+
+              <div class="label-group">
+                <div class="label-line"><span class="label-title">笔刷形状</span></div>
+                <div class="row brush-shapes">
+                  <button id="btnShapeCircle" class="is-active">圆形</button>
+                  <button id="btnShapeSquare">方形</button>
+                  <button id="btnShapeTriangle">三角形</button>
+                </div>
+              </div>
+
+              <div class="label-group">
+                <div class="label-line"><span class="label-title">地形预设</span></div>
+                <div class="row preset-modes">
+                  <button id="btnPresetEmpty">空地</button>
+                  <button id="btnPresetFourRooms">四宫格</button>
+                  <button id="btnPresetMaze">迷宫</button>
+                  <button id="btnPresetBorder">边框</button>
+                  <button id="btnPresetHourglass">沙漏</button>
+                  <button id="btnPresetRings">同心环</button>
+                </div>
+              </div>
+
+              <label>
+                <span class="label-line"><span class="label-title">速度（Tick / 秒）</span><span class="value" id="speedValue">300.0 tick/s</span></span>
+                <input id="speedRange" type="range" min="0.2" max="480" step="0.2" value="300" />
+              </label>
+
+              <label>
+                <span class="label-line"><span class="label-title">笔刷半径</span><span class="value" id="radiusValue">3</span></span>
+                <input id="radiusRange" type="range" min="1" max="12" step="1" value="3" />
+              </label>
+
+              <label>
+                <span class="label-line"><span class="label-title">左键播种基因</span><span class="value" id="geneValue">0.50</span></span>
+                <input id="geneRange" type="range" min="0" max="1" step="0.01" value="0.5" />
+              </label>
+
+              <label>
+                <span class="label-line"><span class="label-title">昼夜速度</span><span class="value" id="sunSpeedValue">0.03</span></span>
+                <input id="sunSpeedRange" type="range" min="0.004" max="0.12" step="0.001" value="0.03" />
+              </label>
+
+              <label>
+                <span class="label-line"><span class="label-title">缩放</span><span class="value" id="zoomValue">1.0x</span></span>
+                <input id="zoomRange" type="range" min="1" max="24" step="0.1" value="1" />
+              </label>
+            </div>
+
+            <p id="toolHint">当前模式：播种。左键拖动绘制；滚轮缩放；中键拖动平移。</p>
+          </div>
+        </aside>
+
+        <!-- Panel 2: Stats -->
+        <aside class="panel panel-stats" id="contentStats">
+          <div class="orbit" id="skyOrbit">
+            <div class="celestial celestial-sun"></div>
+            <div class="celestial celestial-moon"></div>
           </div>
 
-          <label class="label-line" style="margin-top: 4px;">墙体图形</label>
-          <div class="row wall-glyphs">
-            <button id="btnPresetBorder">边框</button>
-            <button id="btnPresetHourglass">沙漏</button>
-            <button id="btnPresetRings">同心环</button>
+          <div class="stats">
+            <div class="card"><span class="k">Day</span><span class="v" id="statTime">0</span></div>
+            <div class="card"><span class="k">Sunlight</span><span class="v" id="statSunlight">0</span></div>
+            <div class="card"><span class="k">Biomass</span><span class="v" id="statBiomass">0</span></div>
+            <div class="card"><span class="k">Cells</span><span class="v" id="statPlants">0</span></div>
+            <div class="card" style="grid-column: span 2"><span class="k">Avg Gene</span><span class="v" id="statGene">0</span></div>
           </div>
 
-          <label>
-            <span class="label-line"><span>速度（Tick / 秒）</span><span class="value" id="speedValue">300.0 tick/s</span></span>
-            <input id="speedRange" type="range" min="0.2" max="480" step="0.2" value="300" />
-          </label>
-
-          <label>
-            <span class="label-line"><span>笔刷半径</span><span class="value" id="radiusValue">3</span></span>
-            <input id="radiusRange" type="range" min="1" max="12" step="1" value="3" />
-          </label>
-
-          <label>
-            <span class="label-line"><span>左键播种基因</span><span class="value" id="geneValue">0.50</span></span>
-            <input id="geneRange" type="range" min="0" max="1" step="0.01" value="0.5" />
-          </label>
-
-          <label>
-            <span class="label-line"><span>昼夜速度</span><span class="value" id="sunSpeedValue">0.03</span></span>
-            <input id="sunSpeedRange" type="range" min="0.004" max="0.12" step="0.001" value="0.03" />
-          </label>
-
-          <label>
-            <span class="label-line"><span>缩放</span><span class="value" id="zoomValue">1.0x</span></span>
-            <input id="zoomRange" type="range" min="1" max="24" step="0.1" value="1" />
-          </label>
-        </div>
-
-        <div class="orbit"><div id="skyBadge">☀</div></div>
-
-        <div class="stats">
-          <div class="card"><span class="k">Day</span><span class="v" id="statTime">0</span></div>
-          <div class="card"><span class="k">Sunlight</span><span class="v" id="statSunlight">0</span></div>
-          <div class="card"><span class="k">Biomass Ratio</span><span class="v" id="statBiomass">0</span></div>
-          <div class="card"><span class="k">Plant Cells</span><span class="v" id="statPlants">0</span></div>
-          <div class="card"><span class="k">Avg Gene</span><span class="v" id="statGene">0</span></div>
-        </div>
-
-        <p id="toolHint">当前模式：播种。左键在画布上拖动即可绘制；滚轮缩放；空格+拖动平移。</p>
-        <canvas id="chartCanvas" width="360" height="156"></canvas>
-        <p class="legend"><strong>Biomass</strong> 与 <strong>Avg Gene</strong> 随时间变化。观察昼夜筛选后，群体是否偏向激进（红）或保守（蓝）。</p>
-      </aside>
+          <div class="chart-container">
+            <canvas id="chartCanvas" width="370" height="240"></canvas>
+            <div class="legend">
+              <span><span class="legend-color legend-hot"></span> Biomass</span>
+              <span><span class="legend-color legend-cold"></span> Avg Gene</span>
+            </div>
+          </div>
+        </aside>
+      </div>
     </main>
 
     <script type="module" src="./src/main.js"></script>
