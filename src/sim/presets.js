@@ -1,5 +1,34 @@
 import { CellType, writeBoth } from './shared.js';
-import { resetWorld, setCell } from './world.js';
+import { recomputeTerrainRanges, resetWorld, setCell } from './world.js';
+
+function fillTerrainByRegion(world, regionFn, profiles) {
+  const { width, height, terrain } = world;
+  if (!terrain) return;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const region = regionFn(x, y);
+    const profile = profiles[region] || profiles.normal;
+    const i = y * width + x;
+    terrain.light[i] = profile.light;
+    terrain.loss[i] = profile.loss;
+  }
+}
+
+function drawDashedWall(world, x0, y0, x1, y1, dashLen = 10, gapLen = 10) {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const steps = Math.max(Math.abs(dx), Math.abs(dy));
+  if (steps <= 0) return;
+  const period = Math.max(2, dashLen + gapLen);
+
+  for (let s = 0; s <= steps; s++) {
+    const phase = s % period;
+    if (phase >= dashLen) continue;
+    const t = s / steps;
+    const x = Math.round(x0 + dx * t);
+    const y = Math.round(y0 + dy * t);
+    setCell(world, x, y, { type: CellType.WALL });
+  }
+}
 
 export function loadPreset(world, presetName, rng = Math.random) {
   resetWorld(world);
@@ -19,15 +48,46 @@ export function loadPreset(world, presetName, rng = Math.random) {
         }
       }
     }
-  } else if (presetName === 'border') {
-    for (let x = 0; x < width; x++) {
-      setCell(world, x, 0, { type: CellType.WALL });
-      setCell(world, x, height - 1, { type: CellType.WALL });
-    }
-    for (let y = 0; y < height; y++) {
-      setCell(world, 0, y, { type: CellType.WALL });
-      setCell(world, width - 1, y, { type: CellType.WALL });
-    }
+  } else if (presetName === 'fiveZones') {
+    const centerX = (width - 1) * 0.5;
+    const centerY = (height - 1) * 0.5;
+    const halfW = Math.max(1, width * 0.5);
+    const halfH = Math.max(1, height * 0.5);
+    const centerDiamondRatio = Math.sqrt(0.1); // 近似五等分（中心约 20%）
+
+    const profiles = {
+      normal: { light: 1.0, loss: 1.0 }, // 中间：完全正常
+      highHigh: { light: 2.0, loss: 24.0 },
+      lowHigh: { light: 0.0, loss: 24.0 },
+      highLow: { light: 2.0, loss: 0.0 },
+      lowLow: { light: 0.0, loss: 0.0 }
+    };
+
+    fillTerrainByRegion(
+      world,
+      (x, y) => {
+        const ux = Math.abs((x - centerX) / halfW);
+        const uy = Math.abs((y - centerY) / halfH);
+        if (ux + uy <= centerDiamondRatio) return 'normal';
+        if (x <= centerX && y <= centerY) return 'lowLow';
+        if (x <= centerX && y > centerY) return 'highHigh';
+        if (x > centerX && y <= centerY) return 'highLow';
+        return 'lowHigh';
+      },
+      profiles
+    );
+
+    recomputeTerrainRanges(world);
+
+    // 用菱形虚线墙分隔 5 区，留足够大的通道（gapLen 较大）。
+    const left = [Math.round(centerX - halfW * centerDiamondRatio), Math.round(centerY)];
+    const top = [Math.round(centerX), Math.round(centerY - halfH * centerDiamondRatio)];
+    const right = [Math.round(centerX + halfW * centerDiamondRatio), Math.round(centerY)];
+    const bottom = [Math.round(centerX), Math.round(centerY + halfH * centerDiamondRatio)];
+    drawDashedWall(world, left[0], left[1], top[0], top[1], 10, 12);
+    drawDashedWall(world, top[0], top[1], right[0], right[1], 10, 12);
+    drawDashedWall(world, right[0], right[1], bottom[0], bottom[1], 10, 12);
+    drawDashedWall(world, bottom[0], bottom[1], left[0], left[1], 10, 12);
   } else if (presetName === 'hourglass') {
     // 沙漏：两侧收窄到中心的墙体轮廓（留出上下通道）
     const pad = 2;
@@ -216,4 +276,3 @@ export function loadPreset(world, presetName, rng = Math.random) {
     }
   }
 }
-

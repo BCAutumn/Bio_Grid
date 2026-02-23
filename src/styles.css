@@ -229,6 +229,40 @@ button.is-active {
   gap: 8px;
 }
 
+.preset-note {
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--border-radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.preset-note-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.preset-note-grid span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Colors aligned with render.js terrain palettes */
+.zone-hl { background: #ffce31; } /* 光照+ (terrainLight high) */
+.zone-lh { background: #392a0b; } /* 光照- (terrainLight low) */
+.zone-hh { background: #f5371e; } /* 流失+ (terrainLoss high) */
+.zone-ll { background: #2391d7; } /* 流失- (terrainLoss low) */
+
 label {
   display: flex;
   flex-direction: column;

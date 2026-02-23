@@ -53,10 +53,18 @@ Bio_Grid/
       world.js
       tick.js
     main.js
+    main-dom.js
     main-interactions.js
+    main-tabs.js
     main-shared-channels.js
     render.js
-    sim-worker.js
+    workers/
+      sim-worker/
+        index.js
+        render.js
+        snapshots.js
+        terrain.js
+        history.js
     styles.css
     config.js
   tests/
@@ -80,7 +88,13 @@ Bio_Grid/
 - 模拟与渲染解耦：
   - `src/sim/` 只负责状态更新。
   - `render.js` 只负责可视化映射。
-  - `main.js` 只做输入编排与循环调度。
+  - `main.js` 只做主线程编排（Worker 通信、相机、帧循环）。
+  - `main-dom.js` 只负责 DOM 引用收集；`main-tabs.js` 只负责侧栏 Tab 切换。
+  - `src/workers/sim-worker/index.js` 只做消息分发与调度；具体职责拆分为：
+    - `src/workers/sim-worker/render.js`（Worker 渲染）
+    - `src/workers/sim-worker/snapshots.js`（快照/共享内存发布）
+    - `src/workers/sim-worker/terrain.js`（地形笔刷）
+    - `src/workers/sim-worker/history.js`（地形撤销/重做历史）
 - 禁止在核心模拟层访问 DOM。
 
 ### 3. 边界与健壮性

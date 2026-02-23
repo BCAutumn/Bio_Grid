@@ -2,10 +2,12 @@ import { createWorld } from './sim/index.js';
 import { drawCellValuesOverlay, drawChart, paintWorldToPixels, updateSkyBadge } from './render.js';
 import { bindInteractions } from './main-interactions.js';
 import { createSharedChannels } from './main-shared-channels.js';
+import { getMainDom } from './main-dom.js';
+import { bindSidebarTabs } from './main-tabs.js';
 
 const GRID_W = 240;
 const GRID_H = 240;
-const HISTORY_MAX = 600; // Increased history to hold more data points on the enlarged chart
+const HISTORY_MAX = 600;
 const BASE_HINT = '当前模式：播种。左键拖动绘制；滚轮缩放；中键拖动平移。';
 const CELL_VALUES_MIN_ZOOM = 8;
 const PANEL_MIN_INTERVAL_MS = 80;
@@ -14,87 +16,49 @@ const RENDER_INTERVAL_MS = 15;
 const CTRL_WRITE_SLOT = 0;
 const CTRL_VERSION = 1;
 const RENDER_MODE_WORKER = 'worker';
-const RENDER_MODE_MAIN = 'main';
 
 const world = createWorld(GRID_W, GRID_H);
-const simWorker = new Worker(new URL('./sim-worker.js', import.meta.url), { type: 'module' });
+const simWorker = new Worker(new URL('./workers/sim-worker/index.js', import.meta.url), { type: 'module' });
 let pendingSnapshot = null;
 let pendingSnapshotMeta = null;
+
 const supportsSharedSnapshots = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated;
 const supportsOffscreenWorker = typeof OffscreenCanvas !== 'undefined' && typeof HTMLCanvasElement !== 'undefined' && typeof HTMLCanvasElement.prototype.transferControlToOffscreen === 'function';
 
-const simCanvas = document.getElementById('simCanvas');
+const dom = getMainDom();
+const { simCanvas, chartCanvas, skyOrbit, orbit, panel, buttons, inputs, tabs } = dom;
+
+const {
+  btnPause, btnReset, btnSeed, btnViewReset, btnCellValues, btnAgingGlow,
+  btnModeLife, btnModeDisturb, btnModeAnnihilate, btnModeWall, btnModeErase,
+  btnModeLightUp, btnModeLightDown, btnModeLossUp, btnModeLossDown,
+  btnShapeCircle, btnShapeSquare, btnShapeRect, btnShapeTriangle,
+  btnPresetEmpty, btnPresetFourRooms, btnPresetMaze,
+  btnPresetFiveZones, btnPresetHourglass, btnPresetRings,
+  btnViewEco, btnViewTerrainLight, btnViewTerrainLoss, btnViewTerrainMix,
+  btnMapUndo, btnMapRedo, btnTerrainUniformReset
+} = buttons;
+
+const {
+  speedInput, speedValue,
+  radiusInput, radiusInputMap, geneInput, radiusValue, radiusValueMap, geneValue,
+  sunSpeedInput, sunSpeedValue,
+  zoomInput, zoomValue,
+  terrainStrengthInput, terrainStrengthValue
+} = inputs;
+
 let simCtx = null;
 let simOffscreen = null;
 if (supportsOffscreenWorker) simOffscreen = simCanvas.transferControlToOffscreen();
 else simCtx = simCanvas.getContext('2d', { alpha: false });
+
 let simTargetWidth = 940;
 let simTargetHeight = 940;
 const sharedChannels = supportsSharedSnapshots && !simOffscreen ? createSharedChannels(world.size) : null;
-const chartCanvas = document.getElementById('chartCanvas');
 const chartCtx = chartCanvas.getContext('2d', { alpha: true });
-const skyOrbit = document.getElementById('skyOrbit');
-const orbit = document.querySelector('.orbit');
-
-const btnPause = document.getElementById('btnPause');
-const btnReset = document.getElementById('btnReset');
-const btnSeed = document.getElementById('btnSeed');
-const btnViewReset = document.getElementById('btnViewReset');
-const btnCellValues = document.getElementById('btnCellValues');
-const btnAgingGlow = document.getElementById('btnAgingGlow');
-
-const speedInput = document.getElementById('speedRange');
-const speedValue = document.getElementById('speedValue');
-const radiusInput = document.getElementById('radiusRange');
-const geneInput = document.getElementById('geneRange');
-const radiusValue = document.getElementById('radiusValue');
-const geneValue = document.getElementById('geneValue');
-const sunSpeedInput = document.getElementById('sunSpeedRange');
-const sunSpeedValue = document.getElementById('sunSpeedValue');
-const zoomInput = document.getElementById('zoomRange');
-const zoomValue = document.getElementById('zoomValue');
-const terrainStrengthInput = document.getElementById('terrainStrengthRange');
-const terrainStrengthValue = document.getElementById('terrainStrengthValue');
-
-const btnModeLife = document.getElementById('btnModeLife');
-const btnModeDisturb = document.getElementById('btnModeDisturb');
-const btnModeAnnihilate = document.getElementById('btnModeAnnihilate');
-const btnModeWall = document.getElementById('btnModeWall');
-const btnModeErase = document.getElementById('btnModeErase');
-const btnModeLightUp = document.getElementById('btnModeLightUp');
-const btnModeLightDown = document.getElementById('btnModeLightDown');
-const btnModeLossUp = document.getElementById('btnModeLossUp');
-const btnModeLossDown = document.getElementById('btnModeLossDown');
-
-const btnShapeCircle = document.getElementById('btnShapeCircle');
-const btnShapeSquare = document.getElementById('btnShapeSquare');
-const btnShapeRect = document.getElementById('btnShapeRect');
-const btnShapeTriangle = document.getElementById('btnShapeTriangle');
-
-const btnPresetEmpty = document.getElementById('btnPresetEmpty');
-const btnPresetFourRooms = document.getElementById('btnPresetFourRooms');
-const btnPresetMaze = document.getElementById('btnPresetMaze');
-const btnPresetBorder = document.getElementById('btnPresetBorder');
-const btnPresetHourglass = document.getElementById('btnPresetHourglass');
-const btnPresetRings = document.getElementById('btnPresetRings');
-const btnViewEco = document.getElementById('btnViewEco');
-const btnViewTerrainLight = document.getElementById('btnViewTerrainLight');
-const btnViewTerrainLoss = document.getElementById('btnViewTerrainLoss');
-const btnViewTerrainMix = document.getElementById('btnViewTerrainMix');
-const btnMapUndo = document.getElementById('btnMapUndo');
-const btnMapRedo = document.getElementById('btnMapRedo');
-const btnTerrainUniformReset = document.getElementById('btnTerrainUniformReset');
-
-const panel = {
-  time: document.getElementById('statTime'),
-  sunlight: document.getElementById('statSunlight'),
-  biomass: document.getElementById('statBiomass'),
-  plants: document.getElementById('statPlants'),
-  gene: document.getElementById('statGene'),
-  hint: document.getElementById('toolHint')
-};
 
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
 let bufferCanvas = null;
 let bufferCtx = null;
 let frame = null;
@@ -141,9 +105,15 @@ const camera = {
   y: world.height / 2
 };
 
-
 function sendToWorker(message, transferables = []) {
   simWorker.postMessage(message, transferables);
+}
+
+function pushHistory(stats) {
+  history.biomass.push(Math.min(1, stats.totalBiomass / world.size));
+  history.gene.push(stats.avgGene);
+  if (history.biomass.length > HISTORY_MAX) history.biomass.shift();
+  if (history.gene.length > HISTORY_MAX) history.gene.shift();
 }
 
 function applySnapshotMeta(snapshotMeta) {
@@ -155,8 +125,6 @@ function applySnapshotMeta(snapshotMeta) {
   world.stats.avgGene = snapshotMeta.stats.avgGene;
   world.stats.plantCount = snapshotMeta.stats.plantCount;
   pushHistory(world.stats);
-
-  // 用快照对齐天空动画基线（后续在 rAF 里平滑推进）
   skySync.time = world.time;
   skySync.ts = performance.now();
 }
@@ -266,7 +234,10 @@ function syncReadouts() {
   speedValue.textContent = `${state.ticksPerSecond.toFixed(1)} tick/s`;
   if (sunSpeedValue && sunSpeedInput) sunSpeedValue.textContent = Number(sunSpeedInput.value).toFixed(3);
   zoomValue.textContent = `${camera.zoom.toFixed(1)}x`;
-  if (radiusValue) radiusValue.textContent = `${Number(radiusInput.value) | 0}`;
+  const radiusText = `${Number(radiusInput.value) | 0}`;
+  if (radiusValue) radiusValue.textContent = radiusText;
+  if (radiusValueMap) radiusValueMap.textContent = radiusText;
+  if (radiusInputMap && radiusInputMap.value !== radiusInput.value) radiusInputMap.value = radiusInput.value;
   if (geneValue) geneValue.textContent = Number(geneInput.value).toFixed(2);
   if (terrainStrengthValue && terrainStrengthInput) terrainStrengthValue.textContent = Number(terrainStrengthInput.value).toFixed(2);
   const enabled = state.showCellValues;
@@ -303,28 +274,6 @@ function zoomAt(clientX, clientY, factor) {
   syncViewToWorker();
 }
 
-function resizeCanvases() {
-  const area = document.querySelector('.sim-shell').getBoundingClientRect();
-  const side = Math.max(360, Math.min(area.width - 32, window.innerHeight * 0.85));
-  simTargetWidth = Math.floor(side);
-  simTargetHeight = Math.floor(side);
-  if (simCtx) {
-    simCanvas.width = simTargetWidth;
-    simCanvas.height = simTargetHeight;
-  }
-  chartCanvas.width = 370;
-  chartCanvas.height = 240;
-  sendToWorker({ type: 'setCanvasSize', width: simTargetWidth, height: simTargetHeight });
-  syncViewToWorker();
-}
-
-function pushHistory(stats) {
-  history.biomass.push(Math.min(1, stats.totalBiomass / world.size));
-  history.gene.push(stats.avgGene);
-  if (history.biomass.length > HISTORY_MAX) history.biomass.shift();
-  if (history.gene.length > HISTORY_MAX) history.gene.shift();
-}
-
 function drawChartIfNeeded(now) {
   if (now - state.lastChartTs >= CHART_MIN_INTERVAL_MS) {
     drawChart(chartCtx, chartCanvas.width, chartCanvas.height, history.biomass, history.gene);
@@ -356,6 +305,21 @@ function refreshPanel() {
   panel.gene.textContent = stats.avgGene.toFixed(3);
 }
 
+function resizeCanvases() {
+  const area = document.querySelector('.sim-shell').getBoundingClientRect();
+  const side = Math.max(360, Math.min(area.width - 32, window.innerHeight * 0.85));
+  simTargetWidth = Math.floor(side);
+  simTargetHeight = Math.floor(side);
+  if (simCtx) {
+    simCanvas.width = simTargetWidth;
+    simCanvas.height = simTargetHeight;
+  }
+  chartCanvas.width = 370;
+  chartCanvas.height = 240;
+  sendToWorker({ type: 'setCanvasSize', width: simTargetWidth, height: simTargetHeight });
+  syncViewToWorker();
+}
+
 function frameLoop(now) {
   if (pendingSnapshotMeta) {
     applySnapshotMeta(pendingSnapshotMeta);
@@ -376,7 +340,6 @@ function frameLoop(now) {
     state.lastPanelTs = now;
   }
 
-  // 昼夜天空轨道动画：按“模拟时间”平滑推进
   const dtMs = now - skySync.ts;
   const dtSec = dtMs > 0 ? dtMs / 1000 : 0;
   const timeRate = state.running ? (state.ticksPerSecond * (world.config.timeStep || 0.05)) : 0;
@@ -385,6 +348,7 @@ function frameLoop(now) {
 
   requestAnimationFrame(frameLoop);
 }
+
 bindInteractions({
   simCanvas,
   panel,
@@ -393,17 +357,8 @@ bindInteractions({
   state,
   camera,
   world,
-  buttons: {
-    btnPause, btnReset, btnSeed, btnViewReset, btnCellValues, btnAgingGlow,
-    btnModeLife, btnModeDisturb, btnModeAnnihilate, btnModeWall, btnModeErase,
-    btnModeLightUp, btnModeLightDown, btnModeLossUp, btnModeLossDown,
-    btnShapeCircle, btnShapeSquare, btnShapeRect, btnShapeTriangle,
-    btnViewEco, btnViewTerrainLight, btnViewTerrainLoss, btnViewTerrainMix,
-    btnPresetEmpty, btnPresetFourRooms, btnPresetMaze,
-    btnPresetBorder, btnPresetHourglass, btnPresetRings,
-    btnMapUndo, btnMapRedo, btnTerrainUniformReset
-  },
-  inputs: { speedInput, radiusInput, geneInput, sunSpeedInput, zoomInput, terrainStrengthInput },
+  buttons,
+  inputs: { speedInput, radiusInput, radiusInputMap, geneInput, sunSpeedInput, zoomInput, terrainStrengthInput },
   sendToWorker,
   setZoom,
   zoomAt,
@@ -421,62 +376,20 @@ bindInteractions({
   onResize: resizeCanvases
 });
 
-const tabControls = document.getElementById('tabControls');
-const tabMapEditor = document.getElementById('tabMapEditor');
-const tabStats = document.getElementById('tabStats');
-const contentControls = document.getElementById('contentControls');
-const contentMapEditor = document.getElementById('contentMapEditor');
-const contentStats = document.getElementById('contentStats');
-
-const panelStats = document.querySelector('.panel-stats');
-
-function updateTabs() {
-  const compactMode = window.innerWidth <= 1600;
-  if (!compactMode && state.activeSidebarTab === 'stats') state.activeSidebarTab = 'controls';
-  const active = state.activeSidebarTab;
-  const showControls = active === 'controls';
-  const showMapEditor = active === 'map';
-  const showStats = compactMode && active === 'stats';
-
-  tabControls.classList.toggle('is-active', showControls);
-  if (tabMapEditor) tabMapEditor.classList.toggle('is-active', showMapEditor);
-  if (tabStats) tabStats.classList.toggle('is-active', showStats);
-
-  contentControls.classList.toggle('is-active', showControls);
-  if (contentMapEditor) contentMapEditor.classList.toggle('is-active', showMapEditor);
-  if (compactMode) panelStats.classList.toggle('is-active', showStats);
-  else panelStats.classList.remove('is-active');
-
-  if (showStats || !compactMode) {
-    drawChartIfNeeded(performance.now() + CHART_MIN_INTERVAL_MS + 1);
+const sidebarTabs = bindSidebarTabs({
+  state,
+  tabs,
+  onStatsVisible: () => drawChartIfNeeded(performance.now() + CHART_MIN_INTERVAL_MS + 1),
+  onControlsTabEnter: () => {
+    if (state.viewMode !== 'eco' && btnViewEco) btnViewEco.click();
+  },
+  onMapTabEnter: () => {
+    if (state.viewMode === 'eco' && btnViewTerrainMix) btnViewTerrainMix.click();
   }
-}
-
-tabControls.addEventListener('click', () => {
-  state.activeSidebarTab = 'controls';
-  updateTabs();
 });
 
-if (tabMapEditor) {
-  tabMapEditor.addEventListener('click', () => {
-    state.activeSidebarTab = 'map';
-    if (state.viewMode === 'eco' && btnViewTerrainMix) btnViewTerrainMix.click();
-    updateTabs();
-  });
-}
-
-if (tabStats) {
-  tabStats.addEventListener('click', () => {
-    state.activeSidebarTab = 'stats';
-    updateTabs();
-  });
-}
-
-// Update tabs on resize to handle layout transitions
-window.addEventListener('resize', updateTabs);
-
 resizeCanvases();
-updateTabs();
+sidebarTabs.updateTabs();
 applyCameraBounds();
 panel.hint.textContent = '连接模拟线程中...';
 world.config.sunSpeed = Number(sunSpeedInput.value);
@@ -496,5 +409,4 @@ const initMessage = {
 };
 sendToWorker(initMessage, simOffscreen ? [simOffscreen] : []);
 syncViewToWorker();
-
 frameLoop(performance.now());

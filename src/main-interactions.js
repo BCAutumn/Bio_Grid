@@ -55,7 +55,7 @@ export function bindInteractions({
     btnPresetEmpty,
     btnPresetFourRooms,
     btnPresetMaze,
-    btnPresetBorder,
+    btnPresetFiveZones,
     btnPresetHourglass,
     btnPresetRings,
     btnMapUndo,
@@ -65,6 +65,7 @@ export function bindInteractions({
   const {
     speedInput,
     radiusInput,
+    radiusInputMap,
     geneInput,
     sunSpeedInput,
     zoomInput,
@@ -156,7 +157,7 @@ export function bindInteractions({
     { btn: btnPresetEmpty, preset: 'empty', label: '空地' },
     { btn: btnPresetFourRooms, preset: 'fourRooms', label: '四宫格' },
     { btn: btnPresetMaze, preset: 'maze', label: '迷宫' },
-    { btn: btnPresetBorder, preset: 'border', label: '边框' },
+    { btn: btnPresetFiveZones, preset: 'fiveZones', label: '五区地形' },
     { btn: btnPresetHourglass, preset: 'hourglass', label: '沙漏' },
     { btn: btnPresetRings, preset: 'rings', label: '同心环' }
   ];
@@ -258,6 +259,19 @@ export function bindInteractions({
   }
 
   radiusInput.addEventListener('input', () => {
+    if (radiusInputMap && radiusInputMap.value !== radiusInput.value) radiusInputMap.value = radiusInput.value;
+    syncReadouts();
+  });
+
+  if (radiusInputMap) {
+    radiusInputMap.addEventListener('input', () => {
+      if (radiusInput.value !== radiusInputMap.value) radiusInput.value = radiusInputMap.value;
+      syncReadouts();
+    });
+  }
+
+  radiusInput.addEventListener('change', () => {
+    if (radiusInputMap && radiusInputMap.value !== radiusInput.value) radiusInputMap.value = radiusInput.value;
     syncReadouts();
   });
 
