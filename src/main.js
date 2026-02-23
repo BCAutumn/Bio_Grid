@@ -1,5 +1,5 @@
 import { createWorld } from './sim/index.js';
-import { drawCellValuesOverlay, drawChart, paintWorldToPixels, updateSkyBadge } from './render.js';
+import { drawCellValuesOverlay, drawChart, drawFlowOverlay, paintWorldToPixels, updateSkyBadge } from './render.js';
 import { bindInteractions } from './main-interactions.js';
 import { createSharedChannels } from './main-shared-channels.js';
 import { getMainDom } from './main-dom.js';
@@ -13,6 +13,7 @@ const CELL_VALUES_MIN_ZOOM = 8;
 const PANEL_MIN_INTERVAL_MS = 80;
 const CHART_MIN_INTERVAL_MS = 96;
 const RENDER_INTERVAL_MS = 15;
+const TRANSFER_RENDER_INTERVAL_MS = 120;
 const CTRL_WRITE_SLOT = 0;
 const CTRL_VERSION = 1;
 const RENDER_MODE_WORKER = 'worker';
@@ -30,12 +31,13 @@ const { simCanvas, chartCanvas, skyOrbit, orbit, panel, buttons, inputs, tabs } 
 
 const {
   btnPause, btnReset, btnSeed, btnViewReset, btnCellValues, btnAgingGlow,
+  btnPolarDay,
   btnModeLife, btnModeDisturb, btnModeAnnihilate, btnModeWall, btnModeErase,
   btnModeLightUp, btnModeLightDown, btnModeLossUp, btnModeLossDown,
   btnShapeCircle, btnShapeSquare, btnShapeRect, btnShapeTriangle,
   btnPresetEmpty, btnPresetFourRooms, btnPresetMaze,
-  btnPresetFiveZones, btnPresetHourglass, btnPresetRings,
-  btnViewEco, btnViewTerrainLight, btnViewTerrainLoss, btnViewTerrainMix,
+  btnPresetFiveZones, btnPresetHourglass, btnPresetRings, btnPresetVerticalGradient,
+  btnViewEco, btnViewTerrainLight, btnViewTerrainLoss, btnViewTerrainMix, btnViewTransfer,
   btnMapUndo, btnMapRedo, btnTerrainUniformReset
 } = buttons;
 
@@ -82,6 +84,7 @@ const state = {
   workerRenderMode: false,
   showCellValues: false,
   showAgingGlow: false,
+  polarDayMode: false,
   viewMode: 'eco',
   brushMode: 'life',
   brushShape: 'circle',
@@ -135,6 +138,10 @@ function applySnapshot(snapshot) {
   world.front.gene = new Float32Array(snapshot.gene);
   world.front.type = new Uint8Array(snapshot.cellType);
   if (snapshot.age) world.front.age = new Float32Array(snapshot.age);
+  if (snapshot.flowIn) world.flow.in = new Float32Array(snapshot.flowIn);
+  if (snapshot.flowOut) world.flow.out = new Float32Array(snapshot.flowOut);
+  if (snapshot.flowVx) world.flow.vx = new Float32Array(snapshot.flowVx);
+  if (snapshot.flowVy) world.flow.vy = new Float32Array(snapshot.flowVy);
   if (Number.isFinite(snapshot.day)) world.day = snapshot.day;
   applySnapshotMeta(snapshot);
 }
@@ -150,6 +157,10 @@ function applySharedSnapshotIfNeeded() {
   world.front.energy = view.energy;
   world.front.gene = view.gene;
   world.front.type = view.cellType;
+  if (view.flowIn) world.flow.in = view.flowIn;
+  if (view.flowOut) world.flow.out = view.flowOut;
+  if (view.flowVx) world.flow.vx = view.flowVx;
+  if (view.flowVy) world.flow.vy = view.flowVy;
 }
 
 simWorker.addEventListener('message', (event) => {
@@ -233,6 +244,11 @@ function syncViewToWorker() {
 function syncReadouts() {
   speedValue.textContent = `${state.ticksPerSecond.toFixed(1)} tick/s`;
   if (sunSpeedValue && sunSpeedInput) sunSpeedValue.textContent = Number(sunSpeedInput.value).toFixed(3);
+  if (sunSpeedInput) sunSpeedInput.disabled = !!state.polarDayMode;
+  if (btnPolarDay) {
+    btnPolarDay.textContent = state.polarDayMode ? '极昼模式：开' : '极昼模式：关';
+    btnPolarDay.classList.toggle('is-active', !!state.polarDayMode);
+  }
   zoomValue.textContent = `${camera.zoom.toFixed(1)}x`;
   const radiusText = `${Number(radiusInput.value) | 0}`;
   if (radiusValue) radiusValue.textContent = radiusText;
@@ -283,12 +299,15 @@ function drawChartIfNeeded(now) {
 
 function paintFrame(now) {
   if (!simCtx || !bufferCtx || !bufferCanvas || !frame) return;
-  paintWorldToPixels(world, frame.data, { showAgingGlow: state.showAgingGlow, viewMode: state.viewMode });
+  paintWorldToPixels(world, frame.data, { showAgingGlow: state.showAgingGlow, viewMode: state.viewMode, nowMs: now });
   bufferCtx.putImageData(frame, 0, 0);
   const view = currentView();
   simCtx.imageSmoothingEnabled = false;
   simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
   simCtx.drawImage(bufferCanvas, view.sx, view.sy, view.sw, view.sh, 0, 0, simCanvas.width, simCanvas.height);
+  if (state.viewMode === 'transfer') {
+    drawFlowOverlay(simCtx, world, view, simCanvas.width, simCanvas.height, now);
+  }
   if (state.showCellValues && camera.zoom >= CELL_VALUES_MIN_ZOOM) {
     drawCellValuesOverlay(simCtx, world, view, simCanvas.width, simCanvas.height);
   }
@@ -297,7 +316,7 @@ function paintFrame(now) {
 
 function refreshPanel() {
   const stats = world.stats;
-  const day = Number.isFinite(world.day) ? world.day : (world.time * (world.config.sunSpeed || 0)) / (Math.PI * 2);
+  const day = Number.isFinite(world.day) ? world.day : 0;
   panel.time.textContent = day.toFixed(2);
   if (panel.sunlight) panel.sunlight.textContent = world.sunlight.toFixed(3);
   panel.biomass.textContent = (stats.totalBiomass / world.size).toFixed(3);
@@ -330,7 +349,8 @@ function frameLoop(now) {
     applySnapshot(pendingSnapshot);
     pendingSnapshot = null;
   }
-  if (now - state.lastRenderTs >= RENDER_INTERVAL_MS) {
+  const renderInterval = state.viewMode === 'transfer' ? TRANSFER_RENDER_INTERVAL_MS : RENDER_INTERVAL_MS;
+  if (now - state.lastRenderTs >= renderInterval) {
     if (state.workerRenderMode) drawChartIfNeeded(now);
     else paintFrame(now);
     state.lastRenderTs = now;
@@ -344,7 +364,7 @@ function frameLoop(now) {
   const dtSec = dtMs > 0 ? dtMs / 1000 : 0;
   const timeRate = state.running ? (state.ticksPerSecond * (world.config.timeStep || 0.05)) : 0;
   const animTime = skySync.time + dtSec * timeRate;
-  updateSkyBadge(skyOrbit, animTime, world.config.sunSpeed);
+  updateSkyBadge(skyOrbit, animTime, world.config.sunSpeed, { polarDay: state.polarDayMode });
 
   requestAnimationFrame(frameLoop);
 }
@@ -393,6 +413,7 @@ sidebarTabs.updateTabs();
 applyCameraBounds();
 panel.hint.textContent = '连接模拟线程中...';
 world.config.sunSpeed = Number(sunSpeedInput.value);
+world.config.polarDay = false;
 syncReadouts();
 orbit.classList.add('ready');
 
@@ -403,6 +424,7 @@ const initMessage = {
   seedCount: 180,
   ticksPerSecond: state.ticksPerSecond,
   sunSpeed: world.config.sunSpeed,
+  polarDay: state.polarDayMode,
   running: state.running,
   shared: sharedChannels ? sharedChannels.buffers : null,
   offscreen: simOffscreen ? { canvas: simOffscreen, width: simTargetWidth, height: simTargetHeight } : null

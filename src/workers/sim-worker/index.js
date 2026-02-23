@@ -155,6 +155,7 @@ self.onmessage = (event) => {
       const height = Number(message.height) || 180;
       state.world = createWorld(width, height);
       state.world.config.sunSpeed = clampSunSpeed(Number(message.sunSpeed) || state.world.config.sunSpeed);
+      state.world.config.polarDay = !!message.polarDay;
       state.ticksPerSecond = clampSpeed(Number(message.ticksPerSecond) || state.ticksPerSecond);
       state.running = message.running !== false;
       state.accumulator = 0;
@@ -195,10 +196,18 @@ self.onmessage = (event) => {
       state.world.config.sunSpeed = clampSunSpeed(raw);
       return;
     }
+    case 'setPolarDayMode': {
+      if (!state.world) return;
+      state.world.config.polarDay = !!message.value;
+      return;
+    }
     case 'setView': {
       if (!state.world) return;
       applyView(message.sx, message.sy, message.sw, message.sh, message.zoom, message.showCellValues, message.viewMode);
       if (typeof message.showAgingGlow === 'boolean') state.showAgingGlow = message.showAgingGlow;
+      // 仅在“能量传输视图”下开启 flow 追踪，避免 tick 热路径常态开销。
+      state.world.config.trackFlow = message.viewMode === 'transfer';
+      updateSnapshotInterval();
       renderFrame(true);
       return;
     }

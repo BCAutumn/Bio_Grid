@@ -21,7 +21,7 @@ npm test
 - 双缓冲主循环（读 `front`，写 `back`）。
 - 昼夜光照：`Sunlight = max(0, sin(Time * Speed))`。
 - 地形异质性：内置固定地形图 `terrain.light / terrain.loss`（不新增调参）；地形直接影响 `sunlight` 强度与 `baseCost` 代谢开销。
-- 能量扩散：梯度驱动扩散（8% 外流上限 + 启动阈值/平滑放量，墙体不参与），详见 `docs/RULES.md`。
+- 能量扩散：梯度驱动扩散 + 按能量缺口加权分配（源-汇动力学），详见 `docs/RULES.md`。
 - 植物代谢：光合作用收入 + 基础代谢支出。
 - 生长/凋亡：能量正负决定生物量增减。
 - 密度惩罚：局部过密增加能量消耗，或者缺乏邻居（小于2个）时触发“孤独”能量流失。
@@ -57,11 +57,11 @@ Bio_Grid/
     main-interactions.js
     main-tabs.js
     main-shared-channels.js
-    render.js
+    render.js            # 主线程渲染
     workers/
       sim-worker/
         index.js
-        render.js
+        render.js            # OffscreenCanvas 渲染
         snapshots.js
         terrain.js
         history.js
@@ -142,7 +142,7 @@ Bio_Grid/
 ## 交互速览
 
 - 左键拖动：根据当前选择的笔刷模式在画布上绘制（播种、干扰、毁灭、墙体）。
-- 预设地图：提供空地、四宫格、迷宫等快捷地形，并支持撤销/重做恢复编辑。
+- 预设地图：提供空地、四宫格、迷宫、五区地形、沙漏、同心环、纵向梯度等快捷地形，并支持撤销/重做恢复编辑。
 - 滚轮：缩放。
 - 空格 + 拖动：平移视角。
 

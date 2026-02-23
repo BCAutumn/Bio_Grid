@@ -1,10 +1,22 @@
 export const DEFAULT_CONFIG = Object.freeze({
   timeStep: 0.05,
   sunSpeed: 0.014,
-  diffuseSelf: 0.92,
-  diffuseNeighbor: 0.08,
+  polarDay: false,
+  // 调试/可视化：是否追踪每 Tick 的能量传输（用于“能量传输视图”）。默认关闭避免热路径开销。
+  trackFlow: false,
+  // 能量扩散（物理定律）：默认降低“绝对能量梯度扩散”的外流比例，避免过快全局抹平。
+  diffuseSelf: 0.98,
+  diffuseNeighbor: 0.02,
   diffuseGradientThreshold: 1.0,
   diffuseGradientScale: 8.0,
+  // 渗透压扩散（饱腹度梯度）：额外的“浓度/渗透压”项，驱动 E/maxE 的均衡，从而支持昼夜互哺。
+  osmosisSelf: 0.99,
+  osmosisNeighbor: 0.01,
+  osmosisGradientThreshold: 0.06, // 0.08→0.06，小梯度也能流动，利于源-汇供养
+  osmosisGradientScale: 0.32,
+  // 溢出分红：当结算后能量超过基因上限（cap）时，溢出部分的一定比例会被分给周围活体植物邻居；
+  // 剩余溢出仍会被截断丢弃。该机制不依赖地形/基因显式参数，但会被基因上限与昼夜收入间接影响。
+  overflowShareFrac: 0.25,
   // 地形流失只作用于基础代谢基项：Cost0 = base * terrain.loss[i] + gene^2 * factor
   baseCost: 0.0004,
   geneCostFactor: 0.002,
@@ -38,7 +50,7 @@ export const DEFAULT_CONFIG = Object.freeze({
 
   // 光合作用：Income = (Sunlight * terrain.light[i]) * (base + Gene * factor)
   photoIncomeBase: 0.04,
-  photoIncomeGeneFactor: 0.0056,
+  photoIncomeGeneFactor: 0.0084,
 
   // 孤独判定：邻居活体植物数 < isolationNeighborMin 时触发
   isolationNeighborMin: 2,

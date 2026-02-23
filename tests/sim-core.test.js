@@ -17,7 +17,7 @@ const neutralTerrain = (world) => {
   if (world.terrain?.loss) world.terrain.loss.fill(1);
 };
 
-test('energy in empty cell does not diffuse', () => {
+test('energy in empty cell is kept at zero (does not diffuse)', () => {
   const world = createWorld(3, 3, { baseCost: 0, geneCostFactor: 0, growthRate: 0, decayRate: 0, sunSpeed: 0 });
   neutralTerrain(world);
   setCell(world, 1, 1, { energy: 100, type: CellType.EMPTY });
@@ -26,7 +26,7 @@ test('energy in empty cell does not diffuse', () => {
 
   const center = world.front.energy[1 + 1 * world.width];
   const right = world.front.energy[2 + 1 * world.width];
-  approx(center, 100);
+  approx(center, 0);
   approx(right, 0);
 });
 
@@ -37,6 +37,8 @@ test('energy diffuses among living plants and smooths spikes', () => {
     diffuseNeighbor: 0.5,
     diffuseGradientThreshold: 0,
     diffuseGradientScale: 1,
+    osmosisSelf: 1,
+    osmosisNeighbor: 0,
     baseCost: 0,
     geneCostFactor: 0,
     growthRate: 0,
@@ -55,6 +57,35 @@ test('energy diffuses among living plants and smooths spikes', () => {
   approx(world.front.energy[0], 50);
   approx(world.front.energy[1], 50);
   approx(world.front.energy[2], 0);
+});
+
+test('osmosis diffusion uses fullness (E/maxE), not absolute energy', () => {
+  const world = createWorld(2, 1, {
+    sunSpeed: 0,
+    // 关闭物理扩散，只测试渗透压项
+    diffuseSelf: 1,
+    diffuseNeighbor: 0,
+    osmosisSelf: 0,
+    osmosisNeighbor: 1,
+    osmosisGradientThreshold: 0,
+    osmosisGradientScale: 1,
+    baseCost: 0,
+    geneCostFactor: 0,
+    growthRate: 0,
+    decayRate: 0,
+    isolationEnergyLoss: 0
+  });
+  neutralTerrain(world);
+  // 左边是激进型（maxE=36），满格：E=36 -> fullness=1.0
+  // 右边是保守型（maxE=72），半格：E=40 -> fullness≈0.556
+  // 绝对能量上右边更大，但“饱腹度”左边更大，所以应当从左向右流动。
+  setCell(world, 0, 0, { type: CellType.PLANT, biomass: 1, energy: 36, gene: 1 });
+  setCell(world, 1, 0, { type: CellType.PLANT, biomass: 1, energy: 40, gene: 0 });
+
+  tick(world, () => 0.5);
+
+  assert.ok(world.front.energy[0] < 36, 'expected leaf (high fullness) to donate some energy');
+  assert.ok(world.front.energy[1] > 40, 'expected fruit (lower fullness) to receive energy');
 });
 
 test('wall cells block diffusion and keep zero energy', () => {
@@ -153,6 +184,8 @@ test('terrain directly scales sunlight and baseCost', () => {
     sunSpeed: 1,
     diffuseSelf: 1,
     diffuseNeighbor: 0,
+    photoIncomeBase: 0.04,
+    photoIncomeGeneFactor: 0.0056,
     baseCost: 1,
     geneCostFactor: 2,
     growthRate: 0,

@@ -4,6 +4,17 @@ const normalize = (v, min, max) => {
   if (span <= 0) return 0;
   return clamp((v - min) / span, 0, 1);
 };
+const PHASE_TAU = Math.PI * 2;
+const phaseFromIndex = (i) => {
+  // 用整数哈希生成稳定相位，避免 i%N 造成沿行索引的斜向条纹闪烁。
+  let h = (i | 0) ^ 0x9e3779b9;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return ((h >>> 0) / 4294967296) * PHASE_TAU;
+};
 const GENE_LUT_SIZE = 256;
 const SAT_LUT_SIZE = 64;
 const SAT_E_MAX = 40;
@@ -46,6 +57,12 @@ export function paintWorldToPixels(world, pixels, options = {}) {
   const { type, biomass, energy, gene, age } = world.front;
   const showAgingGlow = !!options.showAgingGlow;
   const viewMode = options.viewMode || 'eco';
+  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : (typeof performance !== 'undefined' ? performance.now() : 0);
+  const flow = world.flow;
+  const flowIn = flow?.in;
+  const flowOut = flow?.out;
+  const flowVx = flow?.vx;
+  const flowVy = flow?.vy;
   const terrain = world.terrain;
   const terrainLight = terrain?.light;
   const terrainLoss = terrain?.loss;
@@ -97,6 +114,64 @@ export function paintWorldToPixels(world, pixels, options = {}) {
       continue;
     }
 
+    if (viewMode === 'transfer') {
+      // 能量传输视图：底色为暗地形，叠加“源/汇”闪烁高亮；方向箭头由 drawFlowOverlay 负责绘制。
+      if (t === 0) {
+        const base = 10 + lightNorm * 10 + (1 - lossNorm) * 6;
+        pixels[offset] = base;
+        pixels[offset + 1] = base;
+        pixels[offset + 2] = base + 4;
+        pixels[offset + 3] = 255;
+        continue;
+      }
+      if (t !== 1) {
+        pixels[offset] = 14;
+        pixels[offset + 1] = 14;
+        pixels[offset + 2] = 18;
+        pixels[offset + 3] = 255;
+        continue;
+      }
+      const fin = flowIn ? flowIn[i] : 0;
+      const fout = flowOut ? flowOut[i] : 0;
+      const mag = fin + fout;
+      const net = fin - fout;
+      // 闪烁用“真实时间”，避免 tick/s 提高导致屏闪
+      const pulse = 0.88 + 0.12 * Math.sin(nowMs * 0.0028 + phaseFromIndex(i));
+      // 让高亮更“稀疏”：只有当每 tick 传输量超过阈值才明显发光，并用非线性压缩小流量
+      const FLOW_MIN = 0.0045; // 小于该值基本不高亮
+      const FLOW_SCALE = 60; // (mag-FLOW_MIN)*FLOW_SCALE 映射到 0..1
+      const magNorm = mag > FLOW_MIN ? clamp((mag - FLOW_MIN) * FLOW_SCALE, 0, 1) : 0;
+      const intensity = (magNorm ** 1.9) * clamp(pulse, 0, 1);
+
+      // 源（净流出）偏冷色，汇（净流入）偏暖色
+      const src = net < 0;
+      const hr = src ? 50 : 255;
+      const hg = src ? 210 : 190;
+      const hb = src ? 255 : 70;
+
+      // 底色保留一点 gene 信息（便于识别叶/果），但整体更暗
+      const eRaw = energy[i];
+      const e = eRaw > 0 ? eRaw : 0;
+      const g = gene[i];
+      const gIdx = (g * 255) | 0;
+      const eIdx = e < 40 ? ((e / 40) * 63) | 0 : 63;
+      const lutOffset = (gIdx * 64 + eIdx) * 3;
+      const value = Math.min(0.35, biomass[i] * 0.35 + Math.min(0.08, e * 0.0018));
+      const scale = value * 255;
+      let r = HSV_COEFF_LUT[lutOffset] * scale * 0.65;
+      let gg = HSV_COEFF_LUT[lutOffset + 1] * scale * 0.65;
+      let b = HSV_COEFF_LUT[lutOffset + 2] * scale * 0.65;
+
+      r = r + (hr - r) * intensity;
+      gg = gg + (hg - gg) * intensity;
+      b = b + (hb - b) * intensity;
+      pixels[offset] = clamp(r, 0, 255);
+      pixels[offset + 1] = clamp(gg, 0, 255);
+      pixels[offset + 2] = clamp(b, 0, 255);
+      pixels[offset + 3] = 255;
+      continue;
+    }
+
     if (t === 0) {
       let r = 5 + lightNorm * 14 + lossNorm * 14;
       let gg = 8 + lightNorm * 21 - lossNorm * 5;
@@ -144,6 +219,72 @@ export function paintWorldToPixels(world, pixels, options = {}) {
     pixels[offset + 2] = b;
     pixels[offset + 3] = 255;
   }
+}
+
+export function drawFlowOverlay(ctx, world, view, canvasW, canvasH, nowMs = performance.now()) {
+  const flow = world.flow;
+  const flowOut = flow?.out;
+  const flowVx = flow?.vx;
+  const flowVy = flow?.vy;
+  if (!flowOut || !flowVx || !flowVy) return;
+
+  const startX = Math.max(0, Math.floor(view.sx));
+  const endX = Math.min(world.width - 1, Math.ceil(view.sx + view.sw) - 1);
+  const startY = Math.max(0, Math.floor(view.sy));
+  const endY = Math.min(world.height - 1, Math.ceil(view.sy + view.sh) - 1);
+  const cellW = canvasW / view.sw;
+  const cellH = canvasH / view.sh;
+  if (cellW < 4 || cellH < 4) return;
+
+  // 低缩放时抽样画，避免太密太糊
+  const step = Math.max(1, Math.floor(14 / Math.min(cellW, cellH)));
+
+  ctx.save();
+  ctx.lineWidth = Math.max(1, Math.min(2.2, Math.min(cellW, cellH) * 0.12));
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(120, 240, 255, 0.9)';
+  ctx.fillStyle = 'rgba(120, 240, 255, 0.9)';
+
+  for (let y = startY; y <= endY; y += step) for (let x = startX; x <= endX; x += step) {
+    const i = y * world.width + x;
+    const out = flowOut[i];
+    // 箭头更“稀疏”：提高门槛，避免满屏线条造成屏闪感
+    if (!(out > 0.006)) continue;
+    const vx = flowVx[i];
+    const vy = flowVy[i];
+    const mag = Math.hypot(vx, vy);
+    if (mag <= 1e-9 || mag < out * 0.28) continue;
+    const dx = vx / mag;
+    const dy = vy / mag;
+    const pulse = 0.88 + 0.12 * Math.sin((nowMs || 0) * 0.0028 + phaseFromIndex(i));
+    ctx.globalAlpha = 0.7 * pulse;
+
+    const px = (x + 0.5 - view.sx) * cellW;
+    const py = (y + 0.5 - view.sy) * cellH;
+    const maxLen = Math.min(cellW, cellH) * 0.34;
+    const len = Math.min(maxLen, Math.sqrt(out) * 14); // 非线性：小 out 更不显眼，大 out 才更长
+    if (len < 1.2) continue;
+
+    const ex = px + dx * len;
+    const ey = py + dy * len;
+
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+
+    // arrow head
+    const ah = Math.max(2, Math.min(6, len * 0.35));
+    const ax = -dy;
+    const ay = dx;
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - dx * ah + ax * (ah * 0.55), ey - dy * ah + ay * (ah * 0.55));
+    ctx.lineTo(ex - dx * ah - ax * (ah * 0.55), ey - dy * ah - ay * (ah * 0.55));
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 export function drawChart(ctx, w, h, biomassHistory, geneHistory) {
@@ -221,8 +362,19 @@ export function drawCellValuesOverlay(ctx, world, view, canvasW, canvasH) {
   ctx.restore();
 }
 
-export function updateSkyBadge(orbitEl, simTime, sunSpeed) {
+export function updateSkyBadge(orbitEl, simTime, sunSpeed, options = {}) {
   if (!orbitEl) return;
+  const polarDay = !!options.polarDay;
+  if (polarDay) {
+    orbitEl.style.setProperty('--sun', '1');
+    orbitEl.style.setProperty('--sun-x', '50');
+    orbitEl.style.setProperty('--sun-y', '16');
+    orbitEl.style.setProperty('--sun-a', '1');
+    orbitEl.style.setProperty('--moon-x', '50');
+    orbitEl.style.setProperty('--moon-y', '94');
+    orbitEl.style.setProperty('--moon-a', '0');
+    return;
+  }
   const speed = Number.isFinite(sunSpeed) ? sunSpeed : 0;
   const t = Number.isFinite(simTime) ? simTime : 0;
   const phase = (t * speed) % (Math.PI * 2);

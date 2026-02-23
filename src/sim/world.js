@@ -136,14 +136,26 @@ export function createWorld(width = 160, height = 160, config = {}) {
     height,
     size,
     time: 0,
+    day: 0,
     sunlight: 0,
     config: mergedConfig,
     extensions: { typeUpdaters: {} },
     neighbors: buildNeighborCache(width, height),
     terrain: buildTerrain(width, height, mergedConfig),
     wallCount: 0,
+    // 用于“能量传输视图”的调试/可视化数据（每 Tick 由 tick() 重置并写入）。
+    // - in/out: 本 Tick 内从邻居收到/向邻居送出的能量总量
+    // - vx/vy: 本 Tick 内向外送出能量的方向向量（用于画箭头）
+    flow: {
+      in: new Float32Array(size),
+      out: new Float32Array(size),
+      vx: new Float32Array(size),
+      vy: new Float32Array(size)
+    },
     scratch: {
-      reproEligible: new Uint8Array(size)
+      reproEligible: new Uint8Array(size),
+      overflowOut: new Float32Array(size),
+      overflowIn: new Float32Array(size)
     },
     front: createGrid(size),
     back: createGrid(size),
@@ -165,6 +177,7 @@ export function resetWorld(world) {
     grid.age.fill(0);
   }
   world.time = 0;
+  world.day = 0;
   world.sunlight = 0;
   world.wallCount = 0;
   world.stats = { tick: 0, totalBiomass: 0, avgGene: 0, plantCount: 0, sunlight: 0 };

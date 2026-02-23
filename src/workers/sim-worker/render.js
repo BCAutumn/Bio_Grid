@@ -1,4 +1,4 @@
-import { drawCellValuesOverlay, paintWorldToPixels } from '../../render.js';
+import { drawCellValuesOverlay, drawFlowOverlay, paintWorldToPixels } from '../../render.js';
 
 export function createWorkerRenderer({ state, reportWorkerError, renderIntervalMs, cellValuesMinZoom }) {
   function applyView(sx, sy, sw, sh, zoom, showCellValues, viewMode) {
@@ -55,16 +55,20 @@ export function createWorkerRenderer({ state, reportWorkerError, renderIntervalM
     if (state.render.mode !== 'worker' || !state.world) return;
     try {
       const now = performance.now();
-      if (!force && now - state.render.lastRenderTs < renderIntervalMs) return;
+      const interval = state.render.viewMode === 'transfer' ? 120 : renderIntervalMs;
+      if (!force && now - state.render.lastRenderTs < interval) return;
       state.render.lastRenderTs = now;
 
       const { world, render } = state;
       const view = render.view || { sx: 0, sy: 0, sw: world.width, sh: world.height };
-      paintWorldToPixels(world, render.frame.data, { showAgingGlow: state.showAgingGlow, viewMode: render.viewMode });
+      paintWorldToPixels(world, render.frame.data, { showAgingGlow: state.showAgingGlow, viewMode: render.viewMode, nowMs: now });
       render.bufferCtx.putImageData(render.frame, 0, 0);
       render.ctx.imageSmoothingEnabled = false;
       render.ctx.clearRect(0, 0, render.width, render.height);
       render.ctx.drawImage(render.bufferCanvas, view.sx, view.sy, view.sw, view.sh, 0, 0, render.width, render.height);
+      if (render.viewMode === 'transfer') {
+        drawFlowOverlay(render.ctx, world, view, render.width, render.height, now);
+      }
       if (render.showCellValues && render.zoom >= cellValuesMinZoom) {
         drawCellValuesOverlay(render.ctx, world, view, render.width, render.height);
       }

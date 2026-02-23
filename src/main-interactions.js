@@ -35,6 +35,7 @@ export function bindInteractions({
     btnViewReset,
     btnCellValues,
     btnAgingGlow,
+    btnPolarDay,
     btnModeLife,
     btnModeDisturb,
     btnModeAnnihilate,
@@ -52,12 +53,14 @@ export function bindInteractions({
     btnViewTerrainLight,
     btnViewTerrainLoss,
     btnViewTerrainMix,
+    btnViewTransfer,
     btnPresetEmpty,
     btnPresetFourRooms,
     btnPresetMaze,
     btnPresetFiveZones,
     btnPresetHourglass,
     btnPresetRings,
+    btnPresetVerticalGradient,
     btnMapUndo,
     btnMapRedo,
     btnTerrainUniformReset
@@ -138,7 +141,8 @@ export function bindInteractions({
     { btn: btnViewEco, mode: 'eco', label: '生态' },
     { btn: btnViewTerrainLight, mode: 'terrainLight', label: '地形光照' },
     { btn: btnViewTerrainLoss, mode: 'terrainLoss', label: '地形流失' },
-    { btn: btnViewTerrainMix, mode: 'terrainMix', label: '复合地形' }
+    { btn: btnViewTerrainMix, mode: 'terrainMix', label: '复合地形' },
+    { btn: btnViewTransfer, mode: 'transfer', label: '能量传输' }
   ];
 
   const applyViewMode = (mode, label) => {
@@ -159,7 +163,8 @@ export function bindInteractions({
     { btn: btnPresetMaze, preset: 'maze', label: '迷宫' },
     { btn: btnPresetFiveZones, preset: 'fiveZones', label: '五区地形' },
     { btn: btnPresetHourglass, preset: 'hourglass', label: '沙漏' },
-    { btn: btnPresetRings, preset: 'rings', label: '同心环' }
+    { btn: btnPresetRings, preset: 'rings', label: '同心环' },
+    { btn: btnPresetVerticalGradient, preset: 'verticalGradient', label: '纵向梯度' }
   ];
 
   presetButtons.forEach(({ btn, preset, label }) => {
@@ -244,10 +249,23 @@ export function bindInteractions({
 
   if (sunSpeedInput) {
     sunSpeedInput.addEventListener('input', () => {
+      if (state.polarDayMode) return;
       const sunSpeed = Number(sunSpeedInput.value);
       world.config.sunSpeed = sunSpeed;
       sendToWorker({ type: 'setSunSpeed', value: sunSpeed });
       syncReadouts();
+    });
+  }
+
+  if (btnPolarDay) {
+    btnPolarDay.addEventListener('click', () => {
+      state.polarDayMode = !state.polarDayMode;
+      world.config.polarDay = state.polarDayMode;
+      sendToWorker({ type: 'setPolarDayMode', value: state.polarDayMode });
+      syncReadouts();
+      panel.hint.textContent = state.polarDayMode
+        ? '极昼模式已开启：恒定白天，昼夜速度已禁用，天数停止累计'
+        : '极昼模式已关闭：恢复昼夜循环与天数累计';
     });
   }
 

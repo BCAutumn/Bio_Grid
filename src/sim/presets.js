@@ -151,6 +151,33 @@ export function loadPreset(world, presetName, rng = Math.random) {
         for (let dy = -doorHalf; dy <= doorHalf; dy++) clear(x1, y0 + centerPos + dy);
       }
     }
+  } else if (presetName === 'verticalGradient') {
+    const terrain = world.terrain;
+    if (!terrain) return;
+    const lightMin = Number.isFinite(terrain.lightClampMin) ? terrain.lightClampMin : 0;
+    const lightMax = Number.isFinite(terrain.lightClampMax) ? terrain.lightClampMax : 2;
+    const lossMin = Number.isFinite(terrain.lossClampMin) ? terrain.lossClampMin : 0;
+    const lossMax = Number.isFinite(terrain.lossClampMax) ? terrain.lossClampMax : 24;
+    const topBand = 0.05;
+    const bottomBand = 0.02;
+    const denom = Math.max(1e-6, 1 - topBand - bottomBand);
+    const smoothstep = (t) => t * t * (3 - 2 * t);
+
+    for (let y = 0; y < height; y++) {
+      const v = height <= 1 ? 0 : y / (height - 1);
+      let t;
+      if (v <= topBand) t = 0;
+      else if (v >= 1 - bottomBand) t = 1;
+      else t = smoothstep((v - topBand) / denom);
+      const light = lightMax + (lightMin - lightMax) * t;
+      const loss = lossMin + (lossMax - lossMin) * t;
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        terrain.light[i] = light;
+        terrain.loss[i] = loss;
+      }
+    }
+    recomputeTerrainRanges(world);
   } else if (presetName === 'maze') {
     // 真·迷宫：递归回溯（深度优先）生成“完美迷宫”（无环、连通）
     // 采用缩放映射：通道宽 2，墙厚 1（避免“加宽 carve 直接抹掉内部墙体”导致只剩外圈）。

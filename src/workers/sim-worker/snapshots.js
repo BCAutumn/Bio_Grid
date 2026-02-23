@@ -1,11 +1,13 @@
 export function createSnapshotPublisher({ state, computeStats, postMessage, controlWriteSlot, controlVersion }) {
   function updateSnapshotInterval() {
-    state.snapshotIntervalMs = state.render.mode === 'worker' ? 80 : 15;
+    // “能量传输视图”需要更低刷新频率，避免高 tick/s 时屏闪与大量数据传输
+    const base = state.render.viewMode === 'transfer' ? 120 : 15;
+    state.snapshotIntervalMs = state.render.mode === 'worker' ? 120 : base;
   }
 
   function snapshotStats(world) {
     const stats = computeStats(world);
-    const day = (world.time * (world.config.sunSpeed || 0)) / (Math.PI * 2);
+    const day = Number.isFinite(world.day) ? world.day : 0;
     return {
       day,
       stats: {
@@ -36,6 +38,10 @@ export function createSnapshotPublisher({ state, computeStats, postMessage, cont
     slot.energy.set(world.front.energy);
     slot.gene.set(world.front.gene);
     slot.cellType.set(world.front.type);
+    if (slot.flowIn && world.flow?.in) slot.flowIn.set(world.flow.in);
+    if (slot.flowOut && world.flow?.out) slot.flowOut.set(world.flow.out);
+    if (slot.flowVx && world.flow?.vx) slot.flowVx.set(world.flow.vx);
+    if (slot.flowVy && world.flow?.vy) slot.flowVy.set(world.flow.vy);
     Atomics.store(shared.control, controlWriteSlot, nextSlot);
     const version = Atomics.add(shared.control, controlVersion, 1) + 1;
 
@@ -58,8 +64,13 @@ export function createSnapshotPublisher({ state, computeStats, postMessage, cont
     const gene = world.front.gene.slice();
     const age = world.front.age.slice();
     const cellType = world.front.type.slice();
+    const includeFlow = state.render?.viewMode === 'transfer';
+    const flowIn = includeFlow && world.flow?.in ? world.flow.in.slice() : null;
+    const flowOut = includeFlow && world.flow?.out ? world.flow.out.slice() : null;
+    const flowVx = includeFlow && world.flow?.vx ? world.flow.vx.slice() : null;
+    const flowVy = includeFlow && world.flow?.vy ? world.flow.vy.slice() : null;
 
-    postMessage({
+    const message = {
       type: 'snapshot',
       time: world.time,
       day,
@@ -70,7 +81,13 @@ export function createSnapshotPublisher({ state, computeStats, postMessage, cont
       gene: gene.buffer,
       age: age.buffer,
       cellType: cellType.buffer
-    }, [biomass.buffer, energy.buffer, gene.buffer, age.buffer, cellType.buffer]);
+    };
+    const transfers = [biomass.buffer, energy.buffer, gene.buffer, age.buffer, cellType.buffer];
+    if (flowIn) { message.flowIn = flowIn.buffer; transfers.push(flowIn.buffer); }
+    if (flowOut) { message.flowOut = flowOut.buffer; transfers.push(flowOut.buffer); }
+    if (flowVx) { message.flowVx = flowVx.buffer; transfers.push(flowVx.buffer); }
+    if (flowVy) { message.flowVy = flowVy.buffer; transfers.push(flowVy.buffer); }
+    postMessage(message, transfers);
   }
 
   function publishMetaOnly(force = false) {
@@ -99,6 +116,10 @@ export function createSnapshotPublisher({ state, computeStats, postMessage, cont
     const energyAll = new Float32Array(sharedSpec.energy);
     const geneAll = new Float32Array(sharedSpec.gene);
     const typeAll = new Uint8Array(sharedSpec.cellType);
+    const flowInAll = sharedSpec.flowIn ? new Float32Array(sharedSpec.flowIn) : null;
+    const flowOutAll = sharedSpec.flowOut ? new Float32Array(sharedSpec.flowOut) : null;
+    const flowVxAll = sharedSpec.flowVx ? new Float32Array(sharedSpec.flowVx) : null;
+    const flowVyAll = sharedSpec.flowVy ? new Float32Array(sharedSpec.flowVy) : null;
     const offset = size;
 
     state.shared = {
@@ -108,13 +129,21 @@ export function createSnapshotPublisher({ state, computeStats, postMessage, cont
           biomass: biomassAll.subarray(0, offset),
           energy: energyAll.subarray(0, offset),
           gene: geneAll.subarray(0, offset),
-          cellType: typeAll.subarray(0, offset)
+          cellType: typeAll.subarray(0, offset),
+          flowIn: flowInAll ? flowInAll.subarray(0, offset) : null,
+          flowOut: flowOutAll ? flowOutAll.subarray(0, offset) : null,
+          flowVx: flowVxAll ? flowVxAll.subarray(0, offset) : null,
+          flowVy: flowVyAll ? flowVyAll.subarray(0, offset) : null
         },
         {
           biomass: biomassAll.subarray(offset, offset * 2),
           energy: energyAll.subarray(offset, offset * 2),
           gene: geneAll.subarray(offset, offset * 2),
-          cellType: typeAll.subarray(offset, offset * 2)
+          cellType: typeAll.subarray(offset, offset * 2),
+          flowIn: flowInAll ? flowInAll.subarray(offset, offset * 2) : null,
+          flowOut: flowOutAll ? flowOutAll.subarray(offset, offset * 2) : null,
+          flowVx: flowVxAll ? flowVxAll.subarray(offset, offset * 2) : null,
+          flowVy: flowVyAll ? flowVyAll.subarray(offset, offset * 2) : null
         }
       ]
     };
