@@ -1,4 +1,4 @@
-import { drawCellValuesOverlay, drawFlowOverlay, paintWorldToPixels } from '../../render.js';
+import { drawCellValuesOverlay, drawFlowOverlay, paintWorldToPixelsView } from '../../render.js';
 
 export function createWorkerRenderer({ state, reportWorkerError, renderIntervalMs, cellValuesMinZoom }) {
   function applyView(sx, sy, sw, sh, zoom, showCellValues, viewMode) {
@@ -24,16 +24,11 @@ export function createWorkerRenderer({ state, reportWorkerError, renderIntervalM
     if (!ctx) return false;
     canvas.width = Number(width) || canvas.width;
     canvas.height = Number(height) || canvas.height;
-    const bufferCanvas = new OffscreenCanvas(state.world.width, state.world.height);
-    const bufferCtx = bufferCanvas.getContext('2d', { alpha: false });
-    if (!bufferCtx) return false;
-    const frame = bufferCtx.createImageData(state.world.width, state.world.height);
+    const frame = ctx.createImageData(canvas.width, canvas.height);
 
     state.render.mode = 'worker';
     state.render.canvas = canvas;
     state.render.ctx = ctx;
-    state.render.bufferCanvas = bufferCanvas;
-    state.render.bufferCtx = bufferCtx;
     state.render.frame = frame;
     state.render.width = canvas.width;
     state.render.height = canvas.height;
@@ -49,6 +44,7 @@ export function createWorkerRenderer({ state, reportWorkerError, renderIntervalM
     state.render.canvas.height = h;
     state.render.width = w;
     state.render.height = h;
+    if (state.render.ctx) state.render.frame = state.render.ctx.createImageData(w, h);
   }
 
   function renderFrame(force = false) {
@@ -61,11 +57,9 @@ export function createWorkerRenderer({ state, reportWorkerError, renderIntervalM
 
       const { world, render } = state;
       const view = render.view || { sx: 0, sy: 0, sw: world.width, sh: world.height };
-      paintWorldToPixels(world, render.frame.data, { showAgingGlow: state.showAgingGlow, viewMode: render.viewMode, nowMs: now });
-      render.bufferCtx.putImageData(render.frame, 0, 0);
       render.ctx.imageSmoothingEnabled = false;
-      render.ctx.clearRect(0, 0, render.width, render.height);
-      render.ctx.drawImage(render.bufferCanvas, view.sx, view.sy, view.sw, view.sh, 0, 0, render.width, render.height);
+      paintWorldToPixelsView(world, render.frame.data, view, render.width, render.height, { showAgingGlow: state.showAgingGlow, viewMode: render.viewMode, nowMs: now });
+      render.ctx.putImageData(render.frame, 0, 0);
       if (render.viewMode === 'transfer') {
         drawFlowOverlay(render.ctx, world, view, render.width, render.height, now);
       }

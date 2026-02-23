@@ -5,10 +5,31 @@
 ## 快速开始
 
 ```bash
-npm run dev
+npm run dev:all
 ```
 
 默认地址：`http://127.0.0.1:5173`
+
+### 推荐：Taichi 后端引擎（大规模 / 更稳定吞吐）
+
+`dev:all` 会同时启动：
+
+- 前端静态服务器（带 COOP/COEP 头，便于 SharedArrayBuffer）
+- Python + Taichi 后端（用于 fast tick + 后端渲染）
+
+打开：
+
+- `http://127.0.0.1:5173/?engine=taichi` 强制使用 Taichi 后端
+- `http://127.0.0.1:5173/?engine=js` 强制使用旧 JS Worker 内核
+- `http://127.0.0.1:5173/` 默认 `engine=auto`：能探测到后端就用 Taichi，否则回退 JS Worker
+
+成功连上后端后，控制台会打印 `"[backend] ready"`，页面标题处也会显示 `Engine: taichi`。
+
+### 仅前端（不启动 Python 后端）
+
+```bash
+npm run dev
+```
 
 运行测试：
 
@@ -44,6 +65,7 @@ Bio_Grid/
   index.html
   package.json
   scripts/dev-server.mjs
+  scripts/dev-all.mjs
   src/
     sim/
       brush.js
@@ -67,6 +89,10 @@ Bio_Grid/
         history.js
     styles.css
     config.js
+  py/
+    README.md
+    biogrid/
+      dev_backend.py        # Taichi 后端（/api/*）
   tests/
     sim-core.test.js
   docs/
@@ -150,9 +176,9 @@ Bio_Grid/
 
 ## 已知限制
 
-- 当前沙箱环境禁止本地监听端口，因此这里无法完成实际浏览器启动验证。
-- 在本地机器运行 `npm run dev` 可正常启动静态服务器。
 - 若不通过带 COOP/COEP 头的服务运行，浏览器会禁用 SharedArrayBuffer 并自动回退普通快照模式。
+- Taichi 后端为开发期集成，异常时可用 `?engine=js` 立即回退旧 JS Worker 内核，保证前端可用性。
+- 若 GPU/Metal 环境不稳定，可用环境变量强制后端走 CPU：`BIOGRID_TAICHI_ARCH=cpu npm run dev:all`。
 
 ## 未来开发方向（分阶段）
 
@@ -167,3 +193,16 @@ Bio_Grid/
 - 在现有 Web 架构继续做性能路线：`Worker + SharedArrayBuffer` -> `OffscreenCanvas` -> `WebGPU/WASM`。
 - 评估并行原型（如 Taichi/Python）作为超大规模计算内核，用于离线基准与大规模实验。
 - 目标是在规则收敛后再扩展到更大网格，而不是在规则未稳定时盲目追求规模。
+
+### Python + Taichi 原型（现已落地）
+
+- `py/` 目录提供 Python 实现与 Taichi 加速路径。
+- **STRICT 模式**：用于与 Web(JS) 规则对齐与回归（见 `py/tests/test_js_alignment.py`）。
+- **FAST 模式**：用于高性能交互与大规模吞吐（GPU 并行，随机序列与累加顺序不保证逐 tick 与 JS 完全一致）。
+
+### 架构迁移路线（当前执行中）
+
+- 当前仓库同时保留：
+  - 旧 JS 内核（`src/sim/*` + `src/workers/sim-worker/*`）：用于对齐、回归与紧急回退。
+  - Taichi 后端内核（`py/biogrid/*` + `/api/*`）：用于大规模性能与稳定吞吐。
+- 目标：在 **完全对齐旧 JS 规则** 后，逐步移除旧 JS 核心实现，仅保留前端交互/渲染与后端 Taichi 高性能计算作为唯一内核。

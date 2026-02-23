@@ -9,7 +9,7 @@
   <body>
     <main class="page">
       <section class="sim-shell">
-        <canvas id="simCanvas" width="940" height="940"></canvas>
+        <canvas id="simCanvas" width="720" height="720"></canvas>
       </section>
 
       <div class="sidebar-container">
@@ -18,6 +18,7 @@
           <div class="panel-header">
             <h1>Bio-Grid</h1>
             <p class="subtitle">极简生态热力学模拟器</p>
+            <p class="subtitle" id="gridMeta"></p>
           </div>
 
           <div class="panel-tabs">
@@ -51,7 +52,7 @@
 
               <label>
                 <span class="label-line"><span class="label-title">速度（Tick / 秒）</span><span class="value" id="speedValue">300.0 tick/s</span></span>
-                <input id="speedRange" type="range" min="0.2" max="480" step="0.2" value="300" />
+                <input id="speedRange" type="range" min="0.2" max="960" step="0.2" value="300" />
               </label>
 
               <label>

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
+    "dev:all": "node scripts/dev-all.mjs",
     "start": "node scripts/dev-server.mjs",
     "test": "node --test",
     "search:params": "node scripts/param-search.mjs"

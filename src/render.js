@@ -221,6 +221,182 @@ export function paintWorldToPixels(world, pixels, options = {}) {
   }
 }
 
+export function paintWorldToPixelsView(world, pixels, view, outW, outH, options = {}) {
+  const { type, biomass, energy, gene, age } = world.front;
+  const showAgingGlow = !!options.showAgingGlow;
+  const viewMode = options.viewMode || 'eco';
+  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : (typeof performance !== 'undefined' ? performance.now() : 0);
+  const flow = world.flow;
+  const flowIn = flow?.in;
+  const flowOut = flow?.out;
+  const terrain = world.terrain;
+  const terrainLight = terrain?.light;
+  const terrainLoss = terrain?.loss;
+  const lightMin = terrain?.lightMin ?? 1;
+  const lightMax = terrain?.lightMax ?? 1;
+  const lossMin = terrain?.lossMin ?? 1;
+  const lossMax = terrain?.lossMax ?? 1;
+
+  const w = world.width | 0;
+  const h = world.height | 0;
+  const safeOutW = Math.max(1, outW | 0);
+  const safeOutH = Math.max(1, outH | 0);
+  const sx = Number.isFinite(view?.sx) ? view.sx : 0;
+  const sy = Number.isFinite(view?.sy) ? view.sy : 0;
+  const sw = Number.isFinite(view?.sw) && view.sw > 0 ? view.sw : w;
+  const sh = Number.isFinite(view?.sh) && view.sh > 0 ? view.sh : h;
+
+  for (let py = 0; py < safeOutH; py++) {
+    const wy = Math.floor(sy + ((py + 0.5) * sh) / safeOutH);
+    const y = wy < 0 ? 0 : (wy >= h ? (h - 1) : wy);
+    const rowOff = py * safeOutW * 4;
+    for (let px = 0; px < safeOutW; px++) {
+      const wx = Math.floor(sx + ((px + 0.5) * sw) / safeOutW);
+      const x = wx < 0 ? 0 : (wx >= w ? (w - 1) : wx);
+      const i = y * w + x;
+      const offset = rowOff + px * 4;
+      const t = type[i];
+      const lightFactor = terrainLight ? terrainLight[i] : 1;
+      const lossFactor = terrainLoss ? terrainLoss[i] : 1;
+      const lightNorm = normalize(lightFactor, lightMin, lightMax);
+      const lossNorm = normalize(lossFactor, lossMin, lossMax);
+
+      if (t === 3) {
+        pixels[offset] = 210;
+        pixels[offset + 1] = 215;
+        pixels[offset + 2] = 220;
+        pixels[offset + 3] = 255;
+        continue;
+      }
+
+      if (viewMode === 'terrainLight') {
+        const v = 28 + lightNorm * 210;
+        pixels[offset] = 28 + v * 1.05;
+        pixels[offset + 1] = 20 + v * 0.78;
+        pixels[offset + 2] = 6 + v * 0.18;
+        pixels[offset + 3] = 255;
+        continue;
+      }
+
+      if (viewMode === 'terrainLoss') {
+        pixels[offset] = 35 + lossNorm * 210;
+        pixels[offset + 1] = 145 - lossNorm * 90;
+        pixels[offset + 2] = 215 - lossNorm * 185;
+        pixels[offset + 3] = 255;
+        continue;
+      }
+
+      if (viewMode === 'terrainMix') {
+        pixels[offset] = 40 + lossNorm * 210;
+        pixels[offset + 1] = 30 + lightNorm * 210;
+        pixels[offset + 2] = 30 + (1 - lossNorm) * 60 + lightNorm * 150;
+        pixels[offset + 3] = 255;
+        continue;
+      }
+
+      if (viewMode === 'transfer') {
+        if (t === 0) {
+          const base = 10 + lightNorm * 10 + (1 - lossNorm) * 6;
+          pixels[offset] = base;
+          pixels[offset + 1] = base;
+          pixels[offset + 2] = base + 4;
+          pixels[offset + 3] = 255;
+          continue;
+        }
+        if (t !== 1) {
+          pixels[offset] = 14;
+          pixels[offset + 1] = 14;
+          pixels[offset + 2] = 18;
+          pixels[offset + 3] = 255;
+          continue;
+        }
+        const fin = flowIn ? flowIn[i] : 0;
+        const fout = flowOut ? flowOut[i] : 0;
+        const mag = fin + fout;
+        const net = fin - fout;
+        const pulse = 0.88 + 0.12 * Math.sin(nowMs * 0.0028 + phaseFromIndex(i));
+        const FLOW_MIN = 0.0045;
+        const FLOW_SCALE = 60;
+        const magNorm = mag > FLOW_MIN ? clamp((mag - FLOW_MIN) * FLOW_SCALE, 0, 1) : 0;
+        const intensity = (magNorm ** 1.9) * clamp(pulse, 0, 1);
+
+        const src = net < 0;
+        const hr = src ? 50 : 255;
+        const hg = src ? 210 : 190;
+        const hb = src ? 255 : 70;
+
+        const eRaw = energy[i];
+        const e = eRaw > 0 ? eRaw : 0;
+        const g = gene[i];
+        const gIdx = (g * 255) | 0;
+        const eIdx = e < 40 ? ((e / 40) * 63) | 0 : 63;
+        const lutOffset = (gIdx * 64 + eIdx) * 3;
+        const value = Math.min(0.35, biomass[i] * 0.35 + Math.min(0.08, e * 0.0018));
+        const scale = value * 255;
+        let r = HSV_COEFF_LUT[lutOffset] * scale * 0.65;
+        let gg = HSV_COEFF_LUT[lutOffset + 1] * scale * 0.65;
+        let b = HSV_COEFF_LUT[lutOffset + 2] * scale * 0.65;
+
+        r = r + (hr - r) * intensity;
+        gg = gg + (hg - gg) * intensity;
+        b = b + (hb - b) * intensity;
+        pixels[offset] = clamp(r, 0, 255);
+        pixels[offset + 1] = clamp(gg, 0, 255);
+        pixels[offset + 2] = clamp(b, 0, 255);
+        pixels[offset + 3] = 255;
+        continue;
+      }
+
+      if (t === 0) {
+        let r = 5 + lightNorm * 14 + lossNorm * 14;
+        let gg = 8 + lightNorm * 21 - lossNorm * 5;
+        let b = 12 + lightNorm * 28 - lossNorm * 10;
+        const e = energy[i];
+        if (e > 0) {
+          const eIdx = Math.min(SAT_LUT_SIZE - 1, ((e / SAT_E_MAX) * (SAT_LUT_SIZE - 1)) | 0);
+          const lutOffset = eIdx * 3; // gIdx is 0
+          const value = Math.min(0.18, e * 0.0008);
+          const scale = value * 255;
+          r += HSV_COEFF_LUT[lutOffset] * scale;
+          gg += HSV_COEFF_LUT[lutOffset + 1] * scale;
+          b += HSV_COEFF_LUT[lutOffset + 2] * scale;
+        }
+        pixels[offset] = clamp(r, 0, 255);
+        pixels[offset + 1] = clamp(gg, 0, 255);
+        pixels[offset + 2] = clamp(b, 0, 255);
+        pixels[offset + 3] = 255;
+        continue;
+      }
+
+      const eRaw = energy[i];
+      const e = eRaw > 0 ? eRaw : 0;
+      const g = gene[i];
+      const gIdx = (g * 255) | 0;
+      const eIdx = e < 40 ? ((e / 40) * 63) | 0 : 63;
+      const lutOffset = (gIdx * 64 + eIdx) * 3;
+      const value = t === 1 ? Math.min(1, biomass[i] * 0.9 + Math.min(0.12, e * 0.0025)) : Math.min(0.18, e * 0.0008);
+      const scale = value * 255;
+      let r = HSV_COEFF_LUT[lutOffset] * scale;
+      let gg = HSV_COEFF_LUT[lutOffset + 1] * scale;
+      let b = HSV_COEFF_LUT[lutOffset + 2] * scale;
+      if (showAgingGlow && t === 1 && biomass[i] > 0 && age && age[i] > 0) {
+        const cellMaxAge = 3 + (1 - g) * 1.5;
+        const senescenceFactor = (age[i] - cellMaxAge * 0.7) / (cellMaxAge * 0.3);
+        if (senescenceFactor > 0) {
+          const glow = Math.min(1, senescenceFactor) * 0.85;
+          r = Math.min(255, r + (255 - r) * glow);
+          gg *= 1 - glow;
+          b *= 1 - glow;
+        }
+      }
+      pixels[offset] = r;
+      pixels[offset + 1] = gg;
+      pixels[offset + 2] = b;
+      pixels[offset + 3] = 255;
+    }
+  }
+}
+
 export function drawFlowOverlay(ctx, world, view, canvasW, canvasH, nowMs = performance.now()) {
   const flow = world.flow;
   const flowOut = flow?.out;

@@ -1,0 +1,106 @@
+Metadata-Version: 2.4
+Name: biogrid
+Version: 0.1.0
+Summary: Bio-Grid: Python + Taichi 生态模拟器
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.20.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Provides-Extra: taichi
+Requires-Dist: taichi>=1.6.0; extra == "taichi"
+
+# Bio-Grid Python + Taichi 实现
+
+## 安装
+
+```bash
+cd py
+pip install -e .
+pip install taichi pillow  # Phase 2 渲染依赖
+```
+
+## 运行测试
+
+```bash
+# Python 内部测试
+python3 tests/test_align.py
+
+# JS/Python 对齐测试
+python3 tests/test_js_alignment.py
+```
+
+## 模块结构
+
+```
+py/biogrid/
+├── __init__.py       # 包入口
+├── config.py         # 配置参数（与 src/config.js 对齐）
+├── state.py          # 世界状态与数据布局
+├── rng.py            # 可复现 RNG（SFC32）
+├── tick.py           # Tick 逻辑（与 src/sim/tick.js 对齐）
+├── render.py         # Taichi GPU 渲染器
+├── viewer.py         # 交互式可视化窗口
+└── export_render.py  # 渲染截图导出
+```
+
+## 快速开始
+
+### 运行模拟
+
+```python
+from biogrid import World, tick, compute_stats, SFC32, CellType
+
+# 创建世界
+world = World(64, 64)
+
+# 放置植物
+world.set_cell(32, 32, cell_type=CellType.PLANT, biomass=0.8, energy=30, gene=0.5)
+
+# 运行 tick
+rng = SFC32(12345)
+for _ in range(100):
+    tick(world, rng)
+
+# 获取统计
+stats = compute_stats(world)
+print(f"Plants: {stats['plant_count']}, Biomass: {stats['total_biomass']:.2f}")
+```
+
+### 启动交互式查看器
+
+```python
+from biogrid import run_viewer
+run_viewer(width=64, height=64, window_scale=8)
+```
+
+或命令行：
+```bash
+python3 -c "from biogrid import run_viewer; run_viewer()"
+```
+
+### 查看器控制
+
+| 按键 | 功能 |
+|------|------|
+| SPACE | 暂停/继续 |
+| 1-5 | 切换视图 (eco/light/loss/mix/transfer) |
+| A | 切换衰老发光 |
+| +/- | 调整速度 |
+| R | 重置世界 |
+| ESC | 退出 |
+
+## 对齐测试
+
+JS/Python 对齐验证流程：
+
+```bash
+# 1. JS 导出初始快照
+node scripts/export_snapshot.mjs --width=32 --height=32 --seed=42 --output=initial.json
+
+# 2. JS 运行 N tick 导出黄金结果
+node scripts/run_ticks_and_export.mjs --input=initial.json --ticks=50 --seed=12345 --output=golden.json
+
+# 3. Python 对齐测试
+python3 tests/test_js_alignment.py
+```

@@ -51,7 +51,7 @@ const state = {
   }
 };
 
-const clampSpeed = (v) => Math.max(0.2, Math.min(480, v));
+const clampSpeed = (v) => Math.max(0.2, Math.min(960, v));
 const clampSunSpeed = (v) => Math.max(0.004, Math.min(0.12, v));
 
 function reportWorkerError(stage, error) {

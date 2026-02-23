@@ -1,12 +1,29 @@
 import { createWorld } from './sim/index.js';
-import { drawCellValuesOverlay, drawChart, drawFlowOverlay, paintWorldToPixels, updateSkyBadge } from './render.js';
+import { drawCellValuesOverlay, drawChart, drawFlowOverlay, paintWorldToPixelsView, updateSkyBadge } from './render.js';
 import { bindInteractions } from './main-interactions.js';
 import { createSharedChannels } from './main-shared-channels.js';
 import { getMainDom } from './main-dom.js';
 import { bindSidebarTabs } from './main-tabs.js';
 
-const GRID_W = 240;
-const GRID_H = 240;
+const params = new URLSearchParams(globalThis.location?.search || '');
+const parseDim = (v, fallback) => {
+  if (v == null || v === '') return fallback;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.floor(n);
+  return Math.max(4, Math.min(5000, i));
+};
+const GRID_W = parseDim(params.get('w'), 240);
+const GRID_H = parseDim(params.get('h'), 240);
+const parseCanvas = (v, fallback) => {
+  if (v == null || v === '') return fallback;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.floor(n);
+  return Math.max(320, Math.min(1400, i));
+};
+// 默认把画布边长压小一点：单格看起来不会“太大”，也更省渲染开销。
+const CANVAS_SIDE_DEFAULT = parseCanvas(params.get('canvas'), 720);
 const HISTORY_MAX = 600;
 const BASE_HINT = '当前模式：播种。左键拖动绘制；滚轮缩放；中键拖动平移。';
 const CELL_VALUES_MIN_ZOOM = 8;
@@ -18,16 +35,67 @@ const CTRL_WRITE_SLOT = 0;
 const CTRL_VERSION = 1;
 const RENDER_MODE_WORKER = 'worker';
 
-const world = createWorld(GRID_W, GRID_H);
-const simWorker = new Worker(new URL('./workers/sim-worker/index.js', import.meta.url), { type: 'module' });
+const ENGINE_PARAM = String(params.get('engine') || 'auto').toLowerCase();
+const BACKEND_HEALTH_TIMEOUT_MS = 450;
+async function backendHealthy() {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), BACKEND_HEALTH_TIMEOUT_MS);
+  try {
+    const res = await fetch('/api/health', { signal: ctrl.signal });
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    return !!data?.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+const ENGINE = (ENGINE_PARAM === 'taichi' || (ENGINE_PARAM !== 'js' && await backendHealthy())) ? 'taichi' : 'worker';
+let backendReady = ENGINE !== 'taichi';
+let pendingTaichiCanvasSize = null;
+let pendingTaichiView = null;
+
+const world = ENGINE === 'taichi'
+  ? {
+      width: GRID_W,
+      height: GRID_H,
+      size: GRID_W * GRID_H,
+      time: 0,
+      day: 0,
+      sunlight: 0,
+      config: { timeStep: 0.05, sunSpeed: 0.014, polarDay: false, maxEnergy: 40 },
+      stats: { tick: 0, totalBiomass: 0, avgGene: 0, plantCount: 0, sunlight: 0 }
+    }
+  : createWorld(GRID_W, GRID_H);
+
+const simWorker = ENGINE === 'worker'
+  ? new Worker(new URL('./workers/sim-worker/index.js', import.meta.url), { type: 'module' })
+  : null;
 let pendingSnapshot = null;
 let pendingSnapshotMeta = null;
 
-const supportsSharedSnapshots = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated;
-const supportsOffscreenWorker = typeof OffscreenCanvas !== 'undefined' && typeof HTMLCanvasElement !== 'undefined' && typeof HTMLCanvasElement.prototype.transferControlToOffscreen === 'function';
+const supportsSharedSnapshots = ENGINE === 'worker' && typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated;
+const supportsOffscreenWorker = ENGINE === 'worker'
+  && typeof OffscreenCanvas !== 'undefined'
+  && typeof HTMLCanvasElement !== 'undefined'
+  && typeof HTMLCanvasElement.prototype.transferControlToOffscreen === 'function';
 
 const dom = getMainDom();
 const { simCanvas, chartCanvas, skyOrbit, orbit, panel, buttons, inputs, tabs } = dom;
+
+const gridMeta = document.getElementById('gridMeta');
+if (gridMeta) {
+  const byParams = (params.has('w') || params.has('h')) ? '（来自 URL 参数）' : '';
+  gridMeta.textContent = `World: ${GRID_W}×${GRID_H}${byParams} / Engine: ${ENGINE}`;
+}
+if ((params.has('w') || params.has('h')) && (GRID_W <= 8 || GRID_H <= 8)) {
+  panel.hint.textContent = `当前世界尺寸为 ${GRID_W}×${GRID_H}（来自 URL 参数）。把地址栏参数改成 ?w=240&h=240 或直接去掉参数即可。`;
+}
+if (ENGINE === 'taichi') {
+  panel.hint.textContent = 'Taichi 后端已探测到，正在初始化...';
+}
 
 const {
   btnPause, btnReset, btnSeed, btnViewReset, btnCellValues, btnAgingGlow,
@@ -54,8 +122,8 @@ let simOffscreen = null;
 if (supportsOffscreenWorker) simOffscreen = simCanvas.transferControlToOffscreen();
 else simCtx = simCanvas.getContext('2d', { alpha: false });
 
-let simTargetWidth = 940;
-let simTargetHeight = 940;
+let simTargetWidth = CANVAS_SIDE_DEFAULT;
+let simTargetHeight = CANVAS_SIDE_DEFAULT;
 const sharedChannels = supportsSharedSnapshots && !simOffscreen ? createSharedChannels(world.size) : null;
 const chartCtx = chartCanvas.getContext('2d', { alpha: true });
 
@@ -66,10 +134,10 @@ let bufferCtx = null;
 let frame = null;
 if (simCtx) {
   bufferCanvas = document.createElement('canvas');
-  bufferCanvas.width = GRID_W;
-  bufferCanvas.height = GRID_H;
+  bufferCanvas.width = simCanvas.width;
+  bufferCanvas.height = simCanvas.height;
   bufferCtx = bufferCanvas.getContext('2d', { alpha: false });
-  frame = bufferCtx.createImageData(GRID_W, GRID_H);
+  frame = bufferCtx.createImageData(bufferCanvas.width, bufferCanvas.height);
 }
 
 const history = { biomass: [], gene: [] };
@@ -109,7 +177,30 @@ const camera = {
 };
 
 function sendToWorker(message, transferables = []) {
-  simWorker.postMessage(message, transferables);
+  if (ENGINE === 'worker') {
+    simWorker.postMessage(message, transferables);
+    return;
+  }
+  // taichi backend mode: proxy via /api/message
+  if (!backendReady && message?.type !== 'init') {
+    if (message?.type === 'setCanvasSize') pendingTaichiCanvasSize = message;
+    else if (message?.type === 'setView') pendingTaichiView = message;
+    return;
+  }
+  void fetch('/api/message', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(message)
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${txt}`.trim());
+      }
+    })
+    .catch((error) => {
+      console.warn('[backend] message failed', message?.type, error?.message || error);
+    });
 }
 
 function pushHistory(stats) {
@@ -163,7 +254,7 @@ function applySharedSnapshotIfNeeded() {
   if (view.flowVy) world.flow.vy = view.flowVy;
 }
 
-simWorker.addEventListener('message', (event) => {
+if (simWorker) simWorker.addEventListener('message', (event) => {
   const message = event.data;
   if (message.type === 'snapshot') {
     pendingSnapshot = message;
@@ -208,7 +299,7 @@ simWorker.addEventListener('message', (event) => {
   }
 });
 
-simWorker.addEventListener('error', (event) => {
+if (simWorker) simWorker.addEventListener('error', (event) => {
   console.error('[sim-worker:event-error]', event.message || 'worker runtime error');
   panel.hint.textContent = '模拟线程异常，请刷新页面';
 });
@@ -297,14 +388,76 @@ function drawChartIfNeeded(now) {
   }
 }
 
-function paintFrame(now) {
+const backendTextDecoder = new TextDecoder();
+let backendInFlight = false;
+let backendFailures = 0;
+let backendRetryAfterTs = 0;
+function applyBackendMeta(meta) {
+  if (!meta?.sim) return;
+  world.time = meta.sim.time ?? world.time;
+  world.day = meta.sim.day ?? world.day;
+  world.sunlight = meta.sim.sunlight ?? world.sunlight;
+  world.stats.tick = meta.sim.tick ?? world.stats.tick;
+  if (meta.stats) {
+    world.stats.plantCount = meta.stats.plant_count ?? world.stats.plantCount;
+    world.stats.totalBiomass = meta.stats.total_biomass ?? world.stats.totalBiomass;
+    world.stats.avgGene = meta.stats.avg_gene ?? world.stats.avgGene;
+  }
+  pushHistory(world.stats);
+  skySync.time = world.time;
+  skySync.ts = performance.now();
+  // 把“速度读数/暂停状态”跟后端同步一下（避免 UI 漂移）
+  if (typeof meta.sim.ticksPerSecond === 'number') state.ticksPerSecond = meta.sim.ticksPerSecond;
+  if (typeof meta.sim.running === 'boolean') state.running = meta.sim.running;
+}
+
+function requestBackendFrame(now) {
+  if (ENGINE !== 'taichi') return;
+  if (backendInFlight) return;
+  if (now < backendRetryAfterTs) return;
   if (!simCtx || !bufferCtx || !bufferCanvas || !frame) return;
-  paintWorldToPixels(world, frame.data, { showAgingGlow: state.showAgingGlow, viewMode: state.viewMode, nowMs: now });
-  bufferCtx.putImageData(frame, 0, 0);
+  backendInFlight = true;
+  void fetch('/api/frame')
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.arrayBuffer();
+    })
+    .then((buf) => {
+      const view = new DataView(buf);
+      const metaLen = view.getUint32(0, true);
+      const metaJson = backendTextDecoder.decode(new Uint8Array(buf, 4, metaLen));
+      const meta = JSON.parse(metaJson);
+      const rgba = new Uint8ClampedArray(buf, 4 + metaLen);
+      if (rgba.length === frame.data.length) frame.data.set(rgba);
+      bufferCtx.putImageData(frame, 0, 0);
+      simCtx.imageSmoothingEnabled = false;
+      simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
+      simCtx.drawImage(bufferCanvas, 0, 0, bufferCanvas.width, bufferCanvas.height, 0, 0, simCanvas.width, simCanvas.height);
+      applyBackendMeta(meta);
+      drawChartIfNeeded(now);
+      backendFailures = 0;
+    })
+    .catch((error) => {
+      backendFailures++;
+      if (backendFailures === 1) console.warn('[backend] frame failed', error?.message || error);
+      if (backendFailures === 3) panel.hint.textContent = 'Taichi 后端帧拉取失败（已重试），请检查 Python 后端是否在运行';
+      const backoff = Math.min(2000, 120 * (2 ** Math.min(backendFailures, 5)));
+      backendRetryAfterTs = now + backoff;
+    })
+    .finally(() => {
+      backendInFlight = false;
+    });
+}
+
+function paintFrame(now) {
+  if (ENGINE === 'taichi') return;
+  if (!simCtx || !bufferCtx || !bufferCanvas || !frame) return;
   const view = currentView();
+  paintWorldToPixelsView(world, frame.data, view, bufferCanvas.width, bufferCanvas.height, { showAgingGlow: state.showAgingGlow, viewMode: state.viewMode, nowMs: now });
+  bufferCtx.putImageData(frame, 0, 0);
   simCtx.imageSmoothingEnabled = false;
   simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
-  simCtx.drawImage(bufferCanvas, view.sx, view.sy, view.sw, view.sh, 0, 0, simCanvas.width, simCanvas.height);
+  simCtx.drawImage(bufferCanvas, 0, 0, bufferCanvas.width, bufferCanvas.height, 0, 0, simCanvas.width, simCanvas.height);
   if (state.viewMode === 'transfer') {
     drawFlowOverlay(simCtx, world, view, simCanvas.width, simCanvas.height, now);
   }
@@ -326,12 +479,24 @@ function refreshPanel() {
 
 function resizeCanvases() {
   const area = document.querySelector('.sim-shell').getBoundingClientRect();
-  const side = Math.max(360, Math.min(area.width - 32, window.innerHeight * 0.85));
+  const side = Math.max(360, Math.min(CANVAS_SIDE_DEFAULT, area.width - 32, window.innerHeight * 0.85));
   simTargetWidth = Math.floor(side);
   simTargetHeight = Math.floor(side);
-  if (simCtx) {
+  // After transferControlToOffscreen(), resizing the HTMLCanvasElement buffer is forbidden.
+  // Use CSS size for layout, and ask the worker to resize the OffscreenCanvas buffer.
+  if (!simOffscreen) {
     simCanvas.width = simTargetWidth;
     simCanvas.height = simTargetHeight;
+  }
+  simCanvas.style.width = `${simTargetWidth}px`;
+  simCanvas.style.height = `${simTargetHeight}px`;
+
+  if (simCtx) {
+    if (bufferCanvas && bufferCtx) {
+      bufferCanvas.width = simTargetWidth;
+      bufferCanvas.height = simTargetHeight;
+      frame = bufferCtx.createImageData(simTargetWidth, simTargetHeight);
+    }
   }
   chartCanvas.width = 370;
   chartCanvas.height = 240;
@@ -340,6 +505,27 @@ function resizeCanvases() {
 }
 
 function frameLoop(now) {
+  if (ENGINE === 'taichi') {
+    const renderInterval = state.viewMode === 'transfer' ? TRANSFER_RENDER_INTERVAL_MS : RENDER_INTERVAL_MS;
+    if (now - state.lastRenderTs >= renderInterval) {
+      if (backendReady) requestBackendFrame(now);
+      state.lastRenderTs = now;
+    }
+    if (now - state.lastPanelTs >= PANEL_MIN_INTERVAL_MS) {
+      refreshPanel();
+      state.lastPanelTs = now;
+    }
+
+    const dtMs = now - skySync.ts;
+    const dtSec = dtMs > 0 ? dtMs / 1000 : 0;
+    const timeRate = state.running ? (state.ticksPerSecond * (world.config.timeStep || 0.05)) : 0;
+    const animTime = skySync.time + dtSec * timeRate;
+    updateSkyBadge(skyOrbit, animTime, world.config.sunSpeed, { polarDay: state.polarDayMode });
+
+    requestAnimationFrame(frameLoop);
+    return;
+  }
+
   if (pendingSnapshotMeta) {
     applySnapshotMeta(pendingSnapshotMeta);
     pendingSnapshotMeta = null;
@@ -411,24 +597,64 @@ const sidebarTabs = bindSidebarTabs({
 resizeCanvases();
 sidebarTabs.updateTabs();
 applyCameraBounds();
-panel.hint.textContent = '连接模拟线程中...';
+panel.hint.textContent = ENGINE === 'taichi' ? '连接 Taichi 后端中...' : '连接模拟线程中...';
 world.config.sunSpeed = Number(sunSpeedInput.value);
 world.config.polarDay = false;
 syncReadouts();
 orbit.classList.add('ready');
 
-const initMessage = {
-  type: 'init',
-  width: GRID_W,
-  height: GRID_H,
-  seedCount: 180,
-  ticksPerSecond: state.ticksPerSecond,
-  sunSpeed: world.config.sunSpeed,
-  polarDay: state.polarDayMode,
-  running: state.running,
-  shared: sharedChannels ? sharedChannels.buffers : null,
-  offscreen: simOffscreen ? { canvas: simOffscreen, width: simTargetWidth, height: simTargetHeight } : null
-};
-sendToWorker(initMessage, simOffscreen ? [simOffscreen] : []);
+const initMessage = ENGINE === 'taichi'
+  ? {
+      type: 'init',
+      width: GRID_W,
+      height: GRID_H,
+      seedCount: 180,
+      ticksPerSecond: state.ticksPerSecond,
+      sunSpeed: world.config.sunSpeed,
+      polarDay: state.polarDayMode,
+      running: state.running,
+      canvasWidth: simTargetWidth,
+      canvasHeight: simTargetHeight
+    }
+  : {
+      type: 'init',
+      width: GRID_W,
+      height: GRID_H,
+      seedCount: 180,
+      ticksPerSecond: state.ticksPerSecond,
+      sunSpeed: world.config.sunSpeed,
+      polarDay: state.polarDayMode,
+      running: state.running,
+      shared: sharedChannels ? sharedChannels.buffers : null,
+      offscreen: simOffscreen ? { canvas: simOffscreen, width: simTargetWidth, height: simTargetHeight } : null
+    };
+
+async function initBackendIfNeeded() {
+  if (ENGINE !== 'taichi') return;
+  try {
+    const res = await fetch('/api/message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(initMessage)
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+    backendReady = true;
+    panel.hint.textContent = 'Taichi 后端初始化完成（fast tick + 后端渲染）。';
+    console.info('[backend] ready', data);
+    if (pendingTaichiCanvasSize) sendToWorker(pendingTaichiCanvasSize);
+    if (pendingTaichiView) sendToWorker(pendingTaichiView);
+    pendingTaichiCanvasSize = null;
+    pendingTaichiView = null;
+  } catch (error) {
+    backendReady = false;
+    console.warn('[backend] init failed', error?.message || error);
+    panel.hint.textContent = 'Taichi 后端初始化失败：请查看控制台与后端日志（将继续重试/或切换 ?engine=js）。';
+  }
+}
+
+if (ENGINE === 'worker') sendToWorker(initMessage, simOffscreen ? [simOffscreen] : []);
+else void initBackendIfNeeded();
+
 syncViewToWorker();
 frameLoop(performance.now());
