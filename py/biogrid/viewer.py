@@ -114,7 +114,7 @@ class BioGridApp:
         self.view_mode = 'eco'
         self.show_aging_glow = False
         # fast_mode 走 Taichi tick，可把默认 tps 拉高；strict_mode 仍保持保守默认
-        self.target_tps = 480 if self.fast_mode else 10
+        self.target_tps = 960 if self.fast_mode else 10
         self._last_sim_step_time = 0.0
         self._tick_acc = 0.0
 
@@ -226,7 +226,7 @@ class BioGridApp:
                     self._reset_world()
                 gui.text(f"Mode: {'FAST' if self.fast_mode else 'STRICT'}")
                 gui.text(f"View: {self.view_mode}")
-                self.target_tps = int(gui.slider_int("Target TPS", int(self.target_tps), 1, 480))
+                self.target_tps = int(gui.slider_int("Target TPS", int(self.target_tps), 1, 1920))
                 self.show_aging_glow = bool(gui.checkbox("Aging glow (A)", bool(self.show_aging_glow)))
                 gui.text("Brush: LMB drag (only inside left square viewport)")
                 self.brush_radius = int(gui.slider_int("Radius", int(self.brush_radius), 1, 40))
@@ -447,7 +447,7 @@ class BioGridApp:
                 self.show_aging_glow = not self.show_aging_glow
                 print(f"Aging glow: {'ON' if self.show_aging_glow else 'OFF'}")
             elif e.key in ('=', '+'):
-                self.target_tps = min(480, self.target_tps * 2)
+                self.target_tps = min(1920, self.target_tps * 2)
                 print(f"Target TPS: {self.target_tps}")
             elif e.key == '-':
                 self.target_tps = max(1, self.target_tps // 2)

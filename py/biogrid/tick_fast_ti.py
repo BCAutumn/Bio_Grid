@@ -714,13 +714,29 @@ def get_stats_fast(world: WorldTI):
     t = world.front.type.to_numpy()
     bio = world.front.biomass.to_numpy()
     gene = world.front.gene.to_numpy()
+    age = world.front.age.to_numpy()
     plant_mask = (t == int(CellType.PLANT))
     pc = int(plant_mask.sum())
     total_b = float(bio[plant_mask].sum()) if pc else 0.0
     gene_sum = float(gene[plant_mask].sum()) if pc else 0.0
+    senescent_ratio = 0.0
+    if pc:
+        g = gene[plant_mask]
+        a = age[plant_mask]
+        max_age = world.config.ageMaxBase + (1.0 - g) * world.config.ageMaxGeneRange
+        senescent_ratio = float((a > (max_age * world.config.senescenceStartFrac)).sum()) / float(pc)
+
+    max_cell_biomass = max(
+        float(world.config.biomassMaxBase),
+        float(world.config.biomassMaxBase - world.config.biomassMaxGeneRange),
+        1e-6,
+    )
+    total_biomass_cap = float(world.size) * max_cell_biomass
+    normalized_biomass = min(1.0, max(0.0, (total_b / total_biomass_cap) if total_biomass_cap > 0 else 0.0))
     return {
         "plant_count": pc,
         "total_biomass": total_b,
         "avg_gene": (gene_sum / pc) if pc > 0 else 0.0,
+        "normalized_biomass": normalized_biomass,
+        "senescent_ratio": senescent_ratio,
     }
-

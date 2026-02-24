@@ -73,8 +73,8 @@ export function tick(world, rng = Math.random) {
   const ageMaxGeneRange = config.ageMaxGeneRange ?? 1.5;
   const senescenceStartFrac = config.senescenceStartFrac ?? 0.7;
   const senescenceCostExtraMultiplier = config.senescenceCostExtraMultiplier ?? 3;
-  const photoIncomeBase = config.photoIncomeBase ?? 0.04;
-  const photoIncomeGeneFactor = config.photoIncomeGeneFactor ?? 0.0056;
+  const photoIncomeBase = config.photoIncomeBase ?? 0.02;
+  const photoIncomeGeneFactor = config.photoIncomeGeneFactor ?? 0.03;
   const rawOverflowShareFrac = (config.overflowShareFrac ?? config.photoShareFrac ?? 0);
   const overflowShareFrac = rawOverflowShareFrac <= 0 ? 0 : rawOverflowShareFrac >= 1 ? 1 : rawOverflowShareFrac;
   const isolationNeighborMin = config.isolationNeighborMin ?? 2;
@@ -461,18 +461,38 @@ export function tick(world, rng = Math.random) {
 }
 
 export function computeStats(world) {
-  const { type, biomass, gene } = world.front;
+  const { type, biomass, gene, age } = world.front;
+  const biomassMaxBase = world.config.biomassMaxBase ?? 1.8;
+  const biomassMaxGeneRange = world.config.biomassMaxGeneRange ?? 0.8;
+  const ageMaxBase = world.config.ageMaxBase ?? 3;
+  const ageMaxGeneRange = world.config.ageMaxGeneRange ?? 1.5;
+  const senescenceStartFrac = world.config.senescenceStartFrac ?? 0.7;
+
   let totalBiomass = 0;
   let geneSum = 0;
   let plantCount = 0;
+  let senescentCount = 0;
   for (let i = 0; i < world.size; i++) if (type[i] === CellType.PLANT) {
     totalBiomass += biomass[i];
-    geneSum += gene[i];
+    const g = gene[i];
+    geneSum += g;
     plantCount++;
+    const cellMaxAge = ageMaxBase + (1 - g) * ageMaxGeneRange;
+    if (age[i] > cellMaxAge * senescenceStartFrac) senescentCount++;
   }
+
+  const globalMaxCellBiomass = Math.max(
+    biomassMaxBase,
+    biomassMaxBase - biomassMaxGeneRange,
+    1e-6
+  );
+  const totalBiomassCap = world.size * globalMaxCellBiomass;
+  const normalizedBiomass = totalBiomassCap > 0 ? Math.min(1, Math.max(0, totalBiomass / totalBiomassCap)) : 0;
+
   world.stats.totalBiomass = totalBiomass;
   world.stats.plantCount = plantCount;
   world.stats.avgGene = plantCount ? geneSum / plantCount : 0;
+  world.stats.normalizedBiomass = normalizedBiomass;
+  world.stats.senescentRatio = plantCount ? (senescentCount / plantCount) : 0;
   return world.stats;
 }
-

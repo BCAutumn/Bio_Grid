@@ -74,17 +74,22 @@ export function bindInteractions({
     zoomInput,
     terrainStrengthInput
   } = inputs;
+  let lastPaintSignature = '';
 
   function paintFromEvent(event) {
     const [gx, gy] = screenToGrid(event, simCanvas, currentView);
     const radius = Number(radiusInput.value);
     const mode = state.brushMode || 'life';
     const shape = state.brushShape || 'circle';
+    const strength = Number(terrainStrengthInput?.value ?? 0.08);
+    const gene = Number(geneInput.value);
+    const signature = `${gx},${gy},${radius},${mode},${shape},${gene.toFixed(3)},${strength.toFixed(3)}`;
+    if (signature === lastPaintSignature) return;
+    lastPaintSignature = signature;
     const options = { gene: Number(geneInput.value), energy: 24, shape };
     if (mode === 'terrainLightUp' || mode === 'terrainLightDown' || mode === 'terrainLossUp' || mode === 'terrainLossDown') {
       const channel = mode.includes('Light') ? 'light' : 'loss';
       const direction = (mode.endsWith('Up') ? 1 : -1);
-      const strength = Number(terrainStrengthInput?.value ?? 0.08);
       sendToWorker({ type: 'applyTerrainBrush', cx: gx, cy: gy, radius, shape, channel, delta: direction * strength });
       return;
     }
@@ -321,6 +326,7 @@ export function bindInteractions({
     if (event.button !== 0) return;
     simCanvas.setPointerCapture(event.pointerId);
     state.pointerMode = 'paint';
+    lastPaintSignature = '';
     if (
       state.brushMode === 'wall' ||
       state.brushMode === 'erase' ||
@@ -353,6 +359,7 @@ export function bindInteractions({
   const endPointerAction = () => {
     state.pointerMode = 'none';
     state.panStart = null;
+    lastPaintSignature = '';
     simCanvas.style.cursor = brushButtons.find(b => b.mode === state.brushMode)?.cursor || 'crosshair';
     const modeLabel = brushButtons.find(b => b.mode === state.brushMode)?.label || '播种';
     panel.hint.textContent = `当前模式：${modeLabel}。左键拖动绘制；滚轮缩放；中键拖动平移。`;

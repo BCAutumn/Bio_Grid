@@ -18,7 +18,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   // 剩余溢出仍会被截断丢弃。该机制不依赖地形/基因显式参数，但会被基因上限与昼夜收入间接影响。
   overflowShareFrac: 0.25,
   // 地形流失只作用于基础代谢基项：Cost0 = base * terrain.loss[i] + gene^2 * factor
-  baseCost: 0.0004,
+  baseCost: 0.0006,
   geneCostFactor: 0.002,
   // 只有当结算后的能量达到该阈值，生物量才会增长（避免“刚天亮能量略正就瞬间回血”）。
   growthEnergyThreshold: 6,
@@ -42,15 +42,15 @@ export const DEFAULT_CONFIG = Object.freeze({
   biomassMaxBase: 1.8,
   biomassMaxGeneRange: 0.8,
   ageMaxBase: 3,
-  ageMaxGeneRange: 1.5,
+  ageMaxGeneRange: 2.5,
 
   // 衰老：70% 寿命后线性加重，到临近老死时成本增至年轻时 4 倍（额外 +3x）
   senescenceStartFrac: 0.7,
   senescenceCostExtraMultiplier: 3,
 
   // 光合作用：Income = (Sunlight * terrain.light[i]) * (base + Gene * factor)
-  photoIncomeBase: 0.04,
-  photoIncomeGeneFactor: 0.0084,
+  photoIncomeBase: 0.02,
+  photoIncomeGeneFactor: 0.03,
 
   // 孤独判定：邻居活体植物数 < isolationNeighborMin 时触发
   isolationNeighborMin: 2,
@@ -62,11 +62,11 @@ export const DEFAULT_CONFIG = Object.freeze({
   maxEnergy: 72,
 
   // --- Terrain (参数集中管理) ---
-  // 噪声地形生成：默认保持 loss 约在 0~12 的量级（极端值概率更低，主要靠分布形状控制“尾巴”）。
+  // 噪声地形生成：默认保持 loss 约在 1~13 的量级（极端值概率更低，主要靠分布形状控制“尾巴”）。
   terrainNoiseLightMin: 0,
   terrainNoiseLightMax: 2,
-  terrainNoiseLossMin: 0,
-  terrainNoiseLossMax: 12,
+  terrainNoiseLossMin: 1,
+  terrainNoiseLossMax: 13,
   terrainBaseFreq: 4.8,
   terrainOctaves: 4,
   terrainSeedLight: 11.37,
@@ -82,8 +82,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   // 地形编辑/归一化的允许范围（UI 视图和笔刷使用；实际显示范围会根据当前地形值自动扫描）。
   terrainClampLightMin: 0,
   terrainClampLightMax: 2,
-  terrainClampLossMin: 0,
-  terrainClampLossMax: 24
+  terrainClampLossMin: 1,
+  terrainClampLossMax: 25
 });
 
 export const mergeConfig = (overrides = {}) => ({ ...DEFAULT_CONFIG, ...overrides });

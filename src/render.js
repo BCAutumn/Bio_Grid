@@ -41,7 +41,8 @@ function hsvToRgb(h, s, v) {
 
 for (let gi = 0; gi < GENE_LUT_SIZE; gi++) {
   const g = gi / (GENE_LUT_SIZE - 1);
-  const hue = 200 - g * 180;
+  // gene=0 用中等偏深蓝（220deg）：比旧版更蓝，但不至于过深。
+  const hue = 220 - g * 200;
   for (let si = 0; si < SAT_LUT_SIZE; si++) {
     const e = (si / (SAT_LUT_SIZE - 1)) * SAT_E_MAX;
     const sat = clamp((20 + Math.log1p(e) * 18) / 100, 0.08, 1);
@@ -463,7 +464,7 @@ export function drawFlowOverlay(ctx, world, view, canvasW, canvasH, nowMs = perf
   ctx.restore();
 }
 
-export function drawChart(ctx, w, h, biomassHistory, geneHistory) {
+export function drawChart(ctx, w, h, biomassHistory, geneHistory, senescentHistory = []) {
   ctx.clearRect(0, 0, w, h);
   const bg = ctx.createLinearGradient(0, 0, w, h);
   bg.addColorStop(0, 'rgba(10, 10, 10, 0.95)');
@@ -495,11 +496,14 @@ export function drawChart(ctx, w, h, biomassHistory, geneHistory) {
 
   drawSeries(biomassHistory, '#f87171', 0, 1);
   drawSeries(geneHistory, '#38bdf8', 0, 1);
+  drawSeries(senescentHistory, '#fbbf24', 0, 1);
   ctx.fillStyle = 'rgba(243, 244, 246, 0.8)';
   ctx.font = '10px system-ui, -apple-system, sans-serif';
-  ctx.fillText('Biomass', 36, 18);
+  ctx.fillText('Biomass(norm)', 36, 18);
   ctx.fillStyle = '#38bdf8';
-  ctx.fillText('Avg Gene', 90, 18);
+  ctx.fillText('Avg Gene', 124, 18);
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillText('Senescent Ratio', 186, 18);
 }
 
 export function drawCellValuesOverlay(ctx, world, view, canvasW, canvasH) {

@@ -14,7 +14,9 @@ export function createSnapshotPublisher({ state, computeStats, postMessage, cont
         tick: stats.tick,
         totalBiomass: stats.totalBiomass,
         avgGene: stats.avgGene,
-        plantCount: stats.plantCount
+        plantCount: stats.plantCount,
+        normalizedBiomass: stats.normalizedBiomass ?? 0,
+        senescentRatio: stats.senescentRatio ?? 0
       }
     };
   }

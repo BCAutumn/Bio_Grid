@@ -87,8 +87,8 @@ function buildTerrain(width, height, config) {
   const octaves = Math.max(1, (config.terrainOctaves | 0) || 4);
   const lightMin = Number.isFinite(config.terrainNoiseLightMin) ? config.terrainNoiseLightMin : 0;
   const lightMax = Number.isFinite(config.terrainNoiseLightMax) ? config.terrainNoiseLightMax : 2;
-  const lossMin = Number.isFinite(config.terrainNoiseLossMin) ? config.terrainNoiseLossMin : 0;
-  const lossMax = Number.isFinite(config.terrainNoiseLossMax) ? config.terrainNoiseLossMax : 6;
+  const lossMin = Number.isFinite(config.terrainNoiseLossMin) ? config.terrainNoiseLossMin : 1;
+  const lossMax = Number.isFinite(config.terrainNoiseLossMax) ? config.terrainNoiseLossMax : 13;
   const seedLight = Number.isFinite(config.terrainSeedLight) ? config.terrainSeedLight : 11.37;
   const seedLoss = Number.isFinite(config.terrainSeedLoss) ? config.terrainSeedLoss : 73.91;
   const offX = Number.isFinite(config.terrainOffsetX) ? config.terrainOffsetX : 19.3;
@@ -115,8 +115,8 @@ function buildTerrain(width, height, config) {
     // UI/笔刷 clamp 用 config；显示归一化范围会在下方 recomputeTerrainRanges 里按实际地形扫描。
     lightClampMin: Number.isFinite(config.terrainClampLightMin) ? config.terrainClampLightMin : 0,
     lightClampMax: Number.isFinite(config.terrainClampLightMax) ? config.terrainClampLightMax : 2,
-    lossClampMin: Number.isFinite(config.terrainClampLossMin) ? config.terrainClampLossMin : 0,
-    lossClampMax: Number.isFinite(config.terrainClampLossMax) ? config.terrainClampLossMax : 24,
+    lossClampMin: Number.isFinite(config.terrainClampLossMin) ? config.terrainClampLossMin : 1,
+    lossClampMax: Number.isFinite(config.terrainClampLossMax) ? config.terrainClampLossMax : 25,
     lightMin: 0,
     lightMax: 0,
     lossMin: 0,
@@ -159,7 +159,7 @@ export function createWorld(width = 160, height = 160, config = {}) {
     },
     front: createGrid(size),
     back: createGrid(size),
-    stats: { tick: 0, totalBiomass: 0, avgGene: 0, plantCount: 0, sunlight: 0 }
+    stats: { tick: 0, totalBiomass: 0, avgGene: 0, plantCount: 0, normalizedBiomass: 0, senescentRatio: 0, sunlight: 0 }
   };
 }
 
@@ -180,5 +180,5 @@ export function resetWorld(world) {
   world.day = 0;
   world.sunlight = 0;
   world.wallCount = 0;
-  world.stats = { tick: 0, totalBiomass: 0, avgGene: 0, plantCount: 0, sunlight: 0 };
+  world.stats = { tick: 0, totalBiomass: 0, avgGene: 0, plantCount: 0, normalizedBiomass: 0, senescentRatio: 0, sunlight: 0 };
 }

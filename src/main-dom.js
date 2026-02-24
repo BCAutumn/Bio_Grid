@@ -10,6 +10,7 @@ export function getMainDom() {
     biomass: document.getElementById('statBiomass'),
     plants: document.getElementById('statPlants'),
     gene: document.getElementById('statGene'),
+    senescent: document.getElementById('statSenescent'),
     hint: document.getElementById('toolHint')
   };
 

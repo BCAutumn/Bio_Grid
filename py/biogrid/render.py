@@ -58,7 +58,8 @@ def _build_hsv_lut() -> np.ndarray:
     lut = np.zeros((GENE_LUT_SIZE, SAT_LUT_SIZE, 3), dtype=np.float32)
     for gi in range(GENE_LUT_SIZE):
         g = gi / (GENE_LUT_SIZE - 1)
-        hue = 200 - g * 180
+        # gene=0 -> 220deg（中等偏深蓝），比旧版更蓝但不过深
+        hue = 220 - g * 200
         for si in range(SAT_LUT_SIZE):
             e = (si / (SAT_LUT_SIZE - 1)) * SAT_E_MAX
             sat = _clamp((20 + math.log1p(e) * 18) / 100, 0.08, 1)

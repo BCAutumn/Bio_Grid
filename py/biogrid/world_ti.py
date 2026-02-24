@@ -44,8 +44,8 @@ class TerrainTI:
     loss: ti.ndarray
     light_min: float = 0.0
     light_max: float = 2.0
-    loss_min: float = 0.0
-    loss_max: float = 12.0
+    loss_min: float = 1.0
+    loss_max: float = 13.0
 
     @classmethod
     def create(cls, size: int) -> "TerrainTI":
@@ -204,4 +204,3 @@ class WorldTI:
             g.energy.from_numpy(en.astype(np.float32, copy=False))
             g.gene.from_numpy(ge.astype(np.float32, copy=False))
             g.age.from_numpy(ag.astype(np.float32, copy=False))
-

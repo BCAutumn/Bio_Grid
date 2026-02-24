@@ -31,9 +31,16 @@ const PANEL_MIN_INTERVAL_MS = 80;
 const CHART_MIN_INTERVAL_MS = 96;
 const RENDER_INTERVAL_MS = 15;
 const TRANSFER_RENDER_INTERVAL_MS = 120;
+const TAICHI_RENDER_INTERVAL_MS = 16;
+const TAICHI_TRANSFER_RENDER_INTERVAL_MS = 120;
+const TAICHI_RENDER_INTERVAL_HIGH_MS = 24;
+const TAICHI_RENDER_INTERVAL_TURBO_MS = 36;
+const TAICHI_RENDER_INTERVAL_ULTRA_MS = 52;
 const CTRL_WRITE_SLOT = 0;
 const CTRL_VERSION = 1;
 const RENDER_MODE_WORKER = 'worker';
+const ACTUAL_TPS_SMOOTHING = 0.2;
+const ACTUAL_FPS_SMOOTHING = 0.2;
 
 const ENGINE_PARAM = String(params.get('engine') || 'auto').toLowerCase();
 const BACKEND_HEALTH_TIMEOUT_MS = 450;
@@ -56,6 +63,8 @@ const ENGINE = (ENGINE_PARAM === 'taichi' || (ENGINE_PARAM !== 'js' && await bac
 let backendReady = ENGINE !== 'taichi';
 let pendingTaichiCanvasSize = null;
 let pendingTaichiView = null;
+let pendingTaichiBrushMessage = null;
+let taichiBrushInFlight = false;
 
 const world = ENGINE === 'taichi'
   ? {
@@ -66,7 +75,7 @@ const world = ENGINE === 'taichi'
       day: 0,
       sunlight: 0,
       config: { timeStep: 0.05, sunSpeed: 0.014, polarDay: false, maxEnergy: 40 },
-      stats: { tick: 0, totalBiomass: 0, avgGene: 0, plantCount: 0, sunlight: 0 }
+      stats: { tick: 0, totalBiomass: 0, avgGene: 0, plantCount: 0, normalizedBiomass: 0, senescentRatio: 0, sunlight: 0 }
     }
   : createWorld(GRID_W, GRID_H);
 
@@ -84,6 +93,7 @@ const supportsOffscreenWorker = ENGINE === 'worker'
 
 const dom = getMainDom();
 const { simCanvas, chartCanvas, skyOrbit, orbit, panel, buttons, inputs, tabs } = dom;
+const simPerfHud = document.getElementById('simPerfHud');
 
 const gridMeta = document.getElementById('gridMeta');
 if (gridMeta) {
@@ -140,10 +150,12 @@ if (simCtx) {
   frame = bufferCtx.createImageData(bufferCanvas.width, bufferCanvas.height);
 }
 
-const history = { biomass: [], gene: [] };
+const history = { biomass: [], gene: [], senescent: [] };
 const state = {
   running: true,
   ticksPerSecond: Number(speedInput.value),
+  actualTicksPerSecond: Number(speedInput.value),
+  actualFps: 60,
   lastRenderTs: 0,
   lastPanelTs: 0,
   lastChartTs: 0,
@@ -160,7 +172,9 @@ const state = {
   activeSidebarTab: 'controls',
   pointerMode: 'none',
   spaceDown: false,
-  panStart: null
+  panStart: null,
+  tickSample: { tick: null, ts: null },
+  lastRafTs: null
 };
 
 const skySync = {
@@ -185,9 +199,70 @@ function sendToWorker(message, transferables = []) {
   if (!backendReady && message?.type !== 'init') {
     if (message?.type === 'setCanvasSize') pendingTaichiCanvasSize = message;
     else if (message?.type === 'setView') pendingTaichiView = message;
+    else if (message?.type === 'applyBrush' || message?.type === 'applyTerrainBrush') pendingTaichiBrushMessage = message;
     return;
   }
-  void fetch('/api/message', {
+  const type = message?.type;
+  if (type === 'reset' || type === 'loadPreset' || type === 'undoTerrainEdit' || type === 'redoTerrainEdit') {
+    pendingTaichiBrushMessage = null;
+  }
+  if (type === 'applyBrush' || type === 'applyTerrainBrush') {
+    pendingTaichiBrushMessage = message;
+    if (!taichiBrushInFlight) void flushTaichiBrushQueue();
+    return;
+  }
+  void postBackendMessage(message);
+}
+
+function sampleActualTps(tick, now = performance.now()) {
+  if (!Number.isFinite(tick)) return;
+  const prevTick = state.tickSample.tick;
+  const prevTs = state.tickSample.ts;
+  state.tickSample.tick = tick;
+  state.tickSample.ts = now;
+  if (!Number.isFinite(prevTick) || !Number.isFinite(prevTs)) return;
+  const dt = (now - prevTs) / 1000;
+  if (dt <= 0.03) return;
+  const dTick = tick - prevTick;
+  if (!Number.isFinite(dTick) || dTick < 0) return;
+  const measured = dTick / dt;
+  if (!Number.isFinite(measured)) return;
+  state.actualTicksPerSecond = state.actualTicksPerSecond * (1 - ACTUAL_TPS_SMOOTHING) + measured * ACTUAL_TPS_SMOOTHING;
+}
+
+function sampleActualFps(now) {
+  const prevTs = state.lastRafTs;
+  state.lastRafTs = now;
+  if (!Number.isFinite(prevTs)) return;
+  const dtSec = (now - prevTs) / 1000;
+  if (dtSec <= 0) return;
+  const fps = 1 / dtSec;
+  if (!Number.isFinite(fps)) return;
+  state.actualFps = state.actualFps * (1 - ACTUAL_FPS_SMOOTHING) + fps * ACTUAL_FPS_SMOOTHING;
+}
+
+function updateSpeedReadout() {
+  const actualTps = Number.isFinite(state.actualTicksPerSecond) ? state.actualTicksPerSecond : state.ticksPerSecond;
+  const diff = Math.abs(actualTps - state.ticksPerSecond);
+  const fps = Number.isFinite(state.actualFps) ? state.actualFps : 0;
+  const ticksPerFrame = fps > 0.01 ? (actualTps / fps) : 0;
+  const tpsHudText = diff >= 20
+    ? `${state.ticksPerSecond.toFixed(1)} tick/s（实际 ${actualTps.toFixed(0)}）`
+    : `${state.ticksPerSecond.toFixed(1)} tick/s`;
+  speedValue.textContent = `${state.ticksPerSecond.toFixed(1)} tick/s`;
+  if (simPerfHud) simPerfHud.textContent = `${tpsHudText} | ${fps.toFixed(1)} FPS | ${ticksPerFrame.toFixed(1)} tick/frame`;
+}
+
+function taichiRenderInterval(viewMode, ticksPerSecond) {
+  if (viewMode === 'transfer') return TAICHI_TRANSFER_RENDER_INTERVAL_MS;
+  if (ticksPerSecond > 1440) return TAICHI_RENDER_INTERVAL_ULTRA_MS;
+  if (ticksPerSecond > 960) return TAICHI_RENDER_INTERVAL_TURBO_MS;
+  if (ticksPerSecond > 640) return TAICHI_RENDER_INTERVAL_HIGH_MS;
+  return TAICHI_RENDER_INTERVAL_MS;
+}
+
+function postBackendMessage(message) {
+  return fetch('/api/message', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(message)
@@ -197,17 +272,43 @@ function sendToWorker(message, transferables = []) {
         const txt = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status} ${txt}`.trim());
       }
+      return res.json().catch(() => null);
+    })
+    .then((data) => {
+      if (!data || typeof data !== 'object') return;
+      if (data.terrainHistoryState) {
+        const historyState = data.terrainHistoryState;
+        if (btnMapUndo) btnMapUndo.disabled = !historyState.canUndo;
+        if (btnMapRedo) btnMapRedo.disabled = !historyState.canRedo;
+        if (historyState.action === 'undo') panel.hint.textContent = '已撤销地图编辑';
+        else if (historyState.action === 'redo') panel.hint.textContent = '已重做地图编辑';
+      }
     })
     .catch((error) => {
       console.warn('[backend] message failed', message?.type, error?.message || error);
     });
 }
 
+function flushTaichiBrushQueue() {
+  if (ENGINE !== 'taichi' || taichiBrushInFlight || !backendReady) return Promise.resolve();
+  const next = pendingTaichiBrushMessage;
+  if (!next) return Promise.resolve();
+  pendingTaichiBrushMessage = null;
+  taichiBrushInFlight = true;
+  return postBackendMessage(next)
+    .finally(() => {
+      taichiBrushInFlight = false;
+      if (pendingTaichiBrushMessage) void flushTaichiBrushQueue();
+    });
+}
+
 function pushHistory(stats) {
-  history.biomass.push(Math.min(1, stats.totalBiomass / world.size));
+  history.biomass.push(clamp(stats.normalizedBiomass ?? 0, 0, 1));
   history.gene.push(stats.avgGene);
+  history.senescent.push(clamp(stats.senescentRatio ?? 0, 0, 1));
   if (history.biomass.length > HISTORY_MAX) history.biomass.shift();
   if (history.gene.length > HISTORY_MAX) history.gene.shift();
+  if (history.senescent.length > HISTORY_MAX) history.senescent.shift();
 }
 
 function applySnapshotMeta(snapshotMeta) {
@@ -218,7 +319,10 @@ function applySnapshotMeta(snapshotMeta) {
   world.stats.totalBiomass = snapshotMeta.stats.totalBiomass;
   world.stats.avgGene = snapshotMeta.stats.avgGene;
   world.stats.plantCount = snapshotMeta.stats.plantCount;
+  world.stats.normalizedBiomass = snapshotMeta.stats.normalizedBiomass ?? world.stats.normalizedBiomass;
+  world.stats.senescentRatio = snapshotMeta.stats.senescentRatio ?? world.stats.senescentRatio;
   pushHistory(world.stats);
+  sampleActualTps(world.stats.tick);
   skySync.time = world.time;
   skySync.ts = performance.now();
 }
@@ -265,6 +369,10 @@ if (simWorker) simWorker.addEventListener('message', (event) => {
     return;
   }
   if (message.type === 'perf') {
+    if (Number.isFinite(message.actualTicksPerSecond)) {
+      const m = Number(message.actualTicksPerSecond);
+      state.actualTicksPerSecond = state.actualTicksPerSecond * (1 - ACTUAL_TPS_SMOOTHING) + m * ACTUAL_TPS_SMOOTHING;
+    }
     console.info(
       `[perf] mode=${message.mode} target=${Number(message.targetTicksPerSecond).toFixed(1)} tick/s ` +
       `actual=${Number(message.actualTicksPerSecond).toFixed(1)} tick/s backlog=${Number(message.backlog).toFixed(1)} ` +
@@ -333,7 +441,7 @@ function syncViewToWorker() {
 }
 
 function syncReadouts() {
-  speedValue.textContent = `${state.ticksPerSecond.toFixed(1)} tick/s`;
+  updateSpeedReadout();
   if (sunSpeedValue && sunSpeedInput) sunSpeedValue.textContent = Number(sunSpeedInput.value).toFixed(3);
   if (sunSpeedInput) sunSpeedInput.disabled = !!state.polarDayMode;
   if (btnPolarDay) {
@@ -383,7 +491,7 @@ function zoomAt(clientX, clientY, factor) {
 
 function drawChartIfNeeded(now) {
   if (now - state.lastChartTs >= CHART_MIN_INTERVAL_MS) {
-    drawChart(chartCtx, chartCanvas.width, chartCanvas.height, history.biomass, history.gene);
+    drawChart(chartCtx, chartCanvas.width, chartCanvas.height, history.biomass, history.gene, history.senescent);
     state.lastChartTs = now;
   }
 }
@@ -402,8 +510,11 @@ function applyBackendMeta(meta) {
     world.stats.plantCount = meta.stats.plant_count ?? world.stats.plantCount;
     world.stats.totalBiomass = meta.stats.total_biomass ?? world.stats.totalBiomass;
     world.stats.avgGene = meta.stats.avg_gene ?? world.stats.avgGene;
+    world.stats.normalizedBiomass = meta.stats.normalized_biomass ?? world.stats.normalizedBiomass;
+    world.stats.senescentRatio = meta.stats.senescent_ratio ?? world.stats.senescentRatio;
   }
   pushHistory(world.stats);
+  sampleActualTps(world.stats.tick);
   skySync.time = world.time;
   skySync.ts = performance.now();
   // 把“速度读数/暂停状态”跟后端同步一下（避免 UI 漂移）
@@ -468,13 +579,15 @@ function paintFrame(now) {
 }
 
 function refreshPanel() {
+  updateSpeedReadout();
   const stats = world.stats;
   const day = Number.isFinite(world.day) ? world.day : 0;
   panel.time.textContent = day.toFixed(2);
   if (panel.sunlight) panel.sunlight.textContent = world.sunlight.toFixed(3);
-  panel.biomass.textContent = (stats.totalBiomass / world.size).toFixed(3);
+  panel.biomass.textContent = clamp(stats.normalizedBiomass ?? 0, 0, 1).toFixed(3);
   panel.plants.textContent = `${stats.plantCount}`;
   panel.gene.textContent = stats.avgGene.toFixed(3);
+  if (panel.senescent) panel.senescent.textContent = `${(clamp(stats.senescentRatio ?? 0, 0, 1) * 100).toFixed(1)}%`;
 }
 
 function resizeCanvases() {
@@ -505,8 +618,9 @@ function resizeCanvases() {
 }
 
 function frameLoop(now) {
+  sampleActualFps(now);
   if (ENGINE === 'taichi') {
-    const renderInterval = state.viewMode === 'transfer' ? TRANSFER_RENDER_INTERVAL_MS : RENDER_INTERVAL_MS;
+    const renderInterval = taichiRenderInterval(state.viewMode, state.ticksPerSecond);
     if (now - state.lastRenderTs >= renderInterval) {
       if (backendReady) requestBackendFrame(now);
       state.lastRenderTs = now;
@@ -518,7 +632,8 @@ function frameLoop(now) {
 
     const dtMs = now - skySync.ts;
     const dtSec = dtMs > 0 ? dtMs / 1000 : 0;
-    const timeRate = state.running ? (state.ticksPerSecond * (world.config.timeStep || 0.05)) : 0;
+    const effectiveTps = state.running ? (Number.isFinite(state.actualTicksPerSecond) ? state.actualTicksPerSecond : state.ticksPerSecond) : 0;
+    const timeRate = effectiveTps * (world.config.timeStep || 0.05);
     const animTime = skySync.time + dtSec * timeRate;
     updateSkyBadge(skyOrbit, animTime, world.config.sunSpeed, { polarDay: state.polarDayMode });
 
@@ -548,7 +663,8 @@ function frameLoop(now) {
 
   const dtMs = now - skySync.ts;
   const dtSec = dtMs > 0 ? dtMs / 1000 : 0;
-  const timeRate = state.running ? (state.ticksPerSecond * (world.config.timeStep || 0.05)) : 0;
+  const effectiveTps = state.running ? (Number.isFinite(state.actualTicksPerSecond) ? state.actualTicksPerSecond : state.ticksPerSecond) : 0;
+  const timeRate = effectiveTps * (world.config.timeStep || 0.05);
   const animTime = skySync.time + dtSec * timeRate;
   updateSkyBadge(skyOrbit, animTime, world.config.sunSpeed, { polarDay: state.polarDayMode });
 
@@ -575,9 +691,15 @@ bindInteractions({
   onResetState: () => {
     history.biomass.length = 0;
     history.gene.length = 0;
+    history.senescent.length = 0;
     pendingSnapshot = null;
     pendingSnapshotMeta = null;
     state.sharedVersion = -1;
+    state.actualTicksPerSecond = state.ticksPerSecond;
+    state.actualFps = 60;
+    state.tickSample.tick = null;
+    state.tickSample.ts = null;
+    state.lastRafTs = null;
   },
   onResize: resizeCanvases
 });
@@ -642,8 +764,13 @@ async function initBackendIfNeeded() {
     backendReady = true;
     panel.hint.textContent = 'Taichi 后端初始化完成（fast tick + 后端渲染）。';
     console.info('[backend] ready', data);
+    if (data?.terrainHistoryState) {
+      if (btnMapUndo) btnMapUndo.disabled = !data.terrainHistoryState.canUndo;
+      if (btnMapRedo) btnMapRedo.disabled = !data.terrainHistoryState.canRedo;
+    }
     if (pendingTaichiCanvasSize) sendToWorker(pendingTaichiCanvasSize);
     if (pendingTaichiView) sendToWorker(pendingTaichiView);
+    if (pendingTaichiBrushMessage) void flushTaichiBrushQueue();
     pendingTaichiCanvasSize = null;
     pendingTaichiView = null;
   } catch (error) {

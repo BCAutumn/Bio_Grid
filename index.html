@@ -10,6 +10,7 @@
     <main class="page">
       <section class="sim-shell">
         <canvas id="simCanvas" width="720" height="720"></canvas>
+        <div id="simPerfHud" aria-live="polite">300.0 tick/s | 60.0 FPS | 5.0 tick/frame</div>
       </section>
 
       <div class="sidebar-container">
@@ -52,7 +53,7 @@
 
               <label>
                 <span class="label-line"><span class="label-title">速度（Tick / 秒）</span><span class="value" id="speedValue">300.0 tick/s</span></span>
-                <input id="speedRange" type="range" min="0.2" max="960" step="0.2" value="300" />
+                <input id="speedRange" type="range" min="0.2" max="1920" step="0.2" value="300" />
               </label>
 
               <label>
@@ -174,16 +175,18 @@
           <div class="stats">
             <div class="card"><span class="k">Day</span><span class="v" id="statTime">0</span></div>
             <div class="card"><span class="k">Sunlight</span><span class="v" id="statSunlight">0</span></div>
-            <div class="card"><span class="k">Biomass</span><span class="v" id="statBiomass">0</span></div>
+            <div class="card"><span class="k">Biomass(norm)</span><span class="v" id="statBiomass">0</span></div>
             <div class="card"><span class="k">Cells</span><span class="v" id="statPlants">0</span></div>
-            <div class="card" style="grid-column: span 2"><span class="k">Avg Gene</span><span class="v" id="statGene">0</span></div>
+            <div class="card"><span class="k">Avg Gene</span><span class="v" id="statGene">0</span></div>
+            <div class="card"><span class="k">Senescent</span><span class="v" id="statSenescent">0</span></div>
           </div>
 
           <div class="chart-container">
             <canvas id="chartCanvas" width="370" height="240"></canvas>
             <div class="legend">
-              <span><span class="legend-color legend-hot"></span> Biomass</span>
+              <span><span class="legend-color legend-hot"></span> Biomass(norm)</span>
               <span><span class="legend-color legend-cold"></span> Avg Gene</span>
+              <span><span class="legend-color legend-warn"></span> Senescent Ratio</span>
             </div>
           </div>
         </aside>

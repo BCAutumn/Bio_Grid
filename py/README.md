@@ -55,6 +55,11 @@ stats = compute_stats(world)
 print(f"Plants: {stats['plant_count']}, Biomass: {stats['total_biomass']:.2f}")
 ```
 
+## 当前关键默认参数
+
+- `photoIncomeBase = 0.02`（光合作用基础值）
+- `baseCost = 0.0006`（代谢基础值）
+
 ## 两种运行模式：STRICT vs FAST（非常重要）
 
 本项目目前同时维护两套 tick：
@@ -75,6 +80,8 @@ print(f"Plants: {stats['plant_count']}, Biomass: {stats['total_biomass']:.2f}")
 - `GET /api/health`：健康检查
 - `POST /api/message`：控制消息（`init / setView / setTicksPerSecond / applyBrush / ...`）
 - `GET /api/frame`：返回二进制帧（`u32 meta_len` + `meta(json)` + `RGBA(u8)`），用于前端直接贴图渲染
+
+其中 `setTicksPerSecond` 当前限制范围为 `0.2 ~ 1920`。
 
 前端强制启用后端：
 

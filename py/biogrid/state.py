@@ -68,8 +68,8 @@ class Terrain:
     # 实际范围（用于归一化显示）
     light_min: float = 0.0
     light_max: float = 2.0
-    loss_min: float = 0.0
-    loss_max: float = 12.0
+    loss_min: float = 1.0
+    loss_max: float = 13.0
 
     @classmethod
     def create(cls, size: int) -> 'Terrain':
@@ -141,6 +141,8 @@ class Stats:
     total_biomass: float = 0.0
     plant_count: int = 0
     avg_gene: float = 0.0
+    normalized_biomass: float = 0.0
+    senescent_ratio: float = 0.0
 
 
 class World:
@@ -253,6 +255,8 @@ class World:
                 'total_biomass': self.stats.total_biomass,
                 'plant_count': self.stats.plant_count,
                 'avg_gene': self.stats.avg_gene,
+                'normalized_biomass': self.stats.normalized_biomass,
+                'senescent_ratio': self.stats.senescent_ratio,
             },
         }
 
@@ -289,5 +293,7 @@ class World:
             world.stats.total_biomass = stats_data.get('total_biomass', 0.0)
             world.stats.plant_count = stats_data.get('plant_count', 0)
             world.stats.avg_gene = stats_data.get('avg_gene', 0.0)
+            world.stats.normalized_biomass = stats_data.get('normalized_biomass', 0.0)
+            world.stats.senescent_ratio = stats_data.get('senescent_ratio', 0.0)
 
         return world

@@ -57,10 +57,10 @@ export function loadPreset(world, presetName, rng = Math.random) {
 
     const profiles = {
       normal: { light: 1.0, loss: 1.0 }, // 中间：完全正常
-      highHigh: { light: 2.0, loss: 24.0 },
-      lowHigh: { light: 0.0, loss: 24.0 },
-      highLow: { light: 2.0, loss: 0.0 },
-      lowLow: { light: 0.0, loss: 0.0 }
+      highHigh: { light: 2.0, loss: 25.0 },
+      lowHigh: { light: 0.0, loss: 25.0 },
+      highLow: { light: 2.0, loss: 1.0 },
+      lowLow: { light: 0.0, loss: 1.0 }
     };
 
     fillTerrainByRegion(
@@ -156,8 +156,8 @@ export function loadPreset(world, presetName, rng = Math.random) {
     if (!terrain) return;
     const lightMin = Number.isFinite(terrain.lightClampMin) ? terrain.lightClampMin : 0;
     const lightMax = Number.isFinite(terrain.lightClampMax) ? terrain.lightClampMax : 2;
-    const lossMin = Number.isFinite(terrain.lossClampMin) ? terrain.lossClampMin : 0;
-    const lossMax = Number.isFinite(terrain.lossClampMax) ? terrain.lossClampMax : 24;
+    const lossMin = Number.isFinite(terrain.lossClampMin) ? terrain.lossClampMin : 1;
+    const lossMax = Number.isFinite(terrain.lossClampMax) ? terrain.lossClampMax : 25;
     const topBand = 0.05;
     const bottomBand = 0.02;
     const denom = Math.max(1e-6, 1 - topBand - bottomBand);

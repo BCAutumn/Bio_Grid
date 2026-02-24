@@ -546,14 +546,33 @@ def compute_stats(world: World) -> dict:
     plant_count = int(np.sum(plant_mask))
     gene_sum = float(np.sum(front.gene[plant_mask]))
     avg_gene = gene_sum / plant_count if plant_count > 0 else 0.0
+    senescent_ratio = 0.0
+    if plant_count > 0:
+        g = front.gene[plant_mask]
+        age = front.age[plant_mask]
+        max_age = world.config.ageMaxBase + (1.0 - g) * world.config.ageMaxGeneRange
+        senescent = age > (max_age * world.config.senescenceStartFrac)
+        senescent_ratio = float(np.sum(senescent)) / float(plant_count)
+
+    max_cell_biomass = max(
+        float(world.config.biomassMaxBase),
+        float(world.config.biomassMaxBase - world.config.biomassMaxGeneRange),
+        1e-6,
+    )
+    total_biomass_cap = float(world.size) * max_cell_biomass
+    normalized_biomass = min(1.0, max(0.0, (total_biomass / total_biomass_cap) if total_biomass_cap > 0 else 0.0))
 
     world.stats.total_biomass = total_biomass
     world.stats.plant_count = plant_count
     world.stats.avg_gene = avg_gene
+    world.stats.normalized_biomass = normalized_biomass
+    world.stats.senescent_ratio = senescent_ratio
 
     return {
         'tick': world.stats.tick,
         'total_biomass': total_biomass,
         'plant_count': plant_count,
         'avg_gene': avg_gene,
+        'normalized_biomass': normalized_biomass,
+        'senescent_ratio': senescent_ratio,
     }

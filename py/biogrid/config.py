@@ -27,7 +27,7 @@ DEFAULT_CONFIG = {
     'overflowShareFrac': 0.25,
 
     # 代谢
-    'baseCost': 0.0004,
+    'baseCost': 0.0006,
     'geneCostFactor': 0.002,
 
     # 生长/凋亡
@@ -63,13 +63,13 @@ DEFAULT_CONFIG = {
 
     # 寿命与衰老
     'ageMaxBase': 3.0,
-    'ageMaxGeneRange': 1.5,
+    'ageMaxGeneRange': 2.5,
     'senescenceStartFrac': 0.7,
     'senescenceCostExtraMultiplier': 3.0,
 
     # 光合作用
-    'photoIncomeBase': 0.04,
-    'photoIncomeGeneFactor': 0.0084,
+    'photoIncomeBase': 0.02,
+    'photoIncomeGeneFactor': 0.03,
 
     # UI 显示用
     'maxEnergy': 72.0,
@@ -77,8 +77,8 @@ DEFAULT_CONFIG = {
     # 地形生成参数（用于从头创建世界时）
     'terrainNoiseLightMin': 0.0,
     'terrainNoiseLightMax': 2.0,
-    'terrainNoiseLossMin': 0.0,
-    'terrainNoiseLossMax': 12.0,
+    'terrainNoiseLossMin': 1.0,
+    'terrainNoiseLossMax': 13.0,
     'terrainBaseFreq': 4.8,
     'terrainOctaves': 4,
     'terrainSeedLight': 11.37,
@@ -89,8 +89,8 @@ DEFAULT_CONFIG = {
     'terrainNoiseNormalSamples': 3,
     'terrainClampLightMin': 0.0,
     'terrainClampLightMax': 2.0,
-    'terrainClampLossMin': 0.0,
-    'terrainClampLossMax': 24.0,
+    'terrainClampLossMin': 1.0,
+    'terrainClampLossMax': 25.0,
 }
 
 
@@ -119,7 +119,7 @@ class Config:
     overflowShareFrac: float = 0.25
 
     # 代谢
-    baseCost: float = 0.0004
+    baseCost: float = 0.0006
     geneCostFactor: float = 0.002
 
     # 生长/凋亡
@@ -155,13 +155,13 @@ class Config:
 
     # 寿命与衰老
     ageMaxBase: float = 3.0
-    ageMaxGeneRange: float = 1.5
+    ageMaxGeneRange: float = 2.5
     senescenceStartFrac: float = 0.7
     senescenceCostExtraMultiplier: float = 3.0
 
     # 光合作用
-    photoIncomeBase: float = 0.04
-    photoIncomeGeneFactor: float = 0.0084
+    photoIncomeBase: float = 0.02
+    photoIncomeGeneFactor: float = 0.03
 
     # UI 显示用
     maxEnergy: float = 72.0

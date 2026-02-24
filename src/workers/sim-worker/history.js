@@ -40,6 +40,8 @@ export function createTerrainHistoryController({ state, postMessage, postSnapsho
     world.stats.totalBiomass = snapshot.stats.totalBiomass;
     world.stats.avgGene = snapshot.stats.avgGene;
     world.stats.plantCount = snapshot.stats.plantCount;
+    world.stats.normalizedBiomass = snapshot.stats.normalizedBiomass ?? 0;
+    world.stats.senescentRatio = snapshot.stats.senescentRatio ?? 0;
     world.wallCount = snapshot.wallCount;
   }
 
